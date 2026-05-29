@@ -1,0 +1,21 @@
+---
+# group_vars/schema_registry.yml — Confluent Schema Registry (singleton, gcp-a node-01).
+# Registro central de esquemas Avro: NiFi (productor) registra/valida el esquema
+# antes de serializar a Kafka, y el consumidor Java lo usa para deserializar.
+# Los esquemas se versionan y se guardan en el topic interno `_schemas` de Kafka.
+
+schema_registry_image: "{{ container_registry }}/schema-registry:{{ image_tag }}"
+schema_registry_heap_mb: 768            # ligero; node-01 no aloja Java -> hay holgura
+schema_registry_port: 8081
+
+# host_name anunciado = IP interna GCP del nodo (alcanzable via WireGuard).
+schema_registry_host_name: "{{ inventory_hostname }}"
+schema_registry_listeners: "http://0.0.0.0:{{ schema_registry_port }}"
+
+# Almacén de esquemas = el mismo clúster Kafka (mismas VMs gcp-a). Mismo patrón
+# que javaapp_kafka_bootstrap en java.yml.
+schema_registry_kafka_bootstrap: "{{ kafka_brokers | map('regex_replace', '$', ':9092') | join(',') }}"
+
+# Compatibilidad de esquemas: BACKWARD permite evolucionar el esquema del
+# collector sin romper a los consumidores ya desplegados.
+schema_registry_compatibility: "BACKWARD"

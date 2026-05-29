@@ -334,7 +334,7 @@ variable "gcp_a_nodes" {
     public = bool
   }))
   default = [
-    { roles = ["kafka", "zookeeper", "cassandra"], public = true },
+    { roles = ["kafka", "zookeeper", "cassandra", "schema_registry"], public = true },
     { roles = ["kafka", "zookeeper", "cassandra", "java"], public = false },
     { roles = ["kafka", "zookeeper", "cassandra", "java"], public = false },
   ]

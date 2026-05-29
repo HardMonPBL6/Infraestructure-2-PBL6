@@ -10,6 +10,13 @@ nifi_image: "{{ container_registry_local | default('harbor.local') }}/nifi:{{ im
 nifi_ui_port: 8080
 nifi_ingest_port: 8081          # ListenHTTP/HandleHttpRequest — destino del tunel
 
+# --- Avro + Confluent Schema Registry ---------------------------------------
+# NiFi serializa a Avro contra el Schema Registry (gcp-a node-01): el controller
+# service ConfluentSchemaRegistry apunta a esta URL y los records se publican en
+# Kafka con el schema id en la cabecera (wire format Confluent). NiFi vive en la
+# nube local -> alcanza node-01 por su IP WireGuard (ansible_host del gateway).
+nifi_schema_registry_url: "http://{{ hostvars[schema_registry_node].ansible_host }}:{{ hostvars[schema_registry_node].schema_registry_port | default(8081) }}"
+
 # --- cloudflared (Cloudflare Tunnel) ----------------------------------------
 cloudflared_enabled: true
 cloudflared_image: "cloudflare/cloudflared:latest"

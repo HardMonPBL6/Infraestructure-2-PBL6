@@ -10,5 +10,9 @@ javaapp_rmi_object_port: 1100
 javaapp_kafka_bootstrap: "{{ kafka_brokers | map('regex_replace', '$', ':9092') | join(',') }}"
 javaapp_cassandra_contact_points: "{{ cassandra_nodes | join(',') }}"
 
+# Deserializa los records Avro de Kafka con el Schema Registry (gcp-a node-01,
+# misma nube). KafkaAvroDeserializer resuelve el schema id de cada mensaje aqui.
+javaapp_schema_registry_url: "http://{{ hostvars[schema_registry_node].ansible_host }}:{{ hostvars[schema_registry_node].schema_registry_port | default(8081) }}"
+
 # hostname RMI anunciado = IP interna GCP del nodo (accesible via WireGuard entre nubes).
 javaapp_rmi_server_hostname: "{{ inventory_hostname }}"

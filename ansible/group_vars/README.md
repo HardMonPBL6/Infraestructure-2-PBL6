@@ -20,6 +20,7 @@ de todos los grupos a los que pertenece un host, así que:
    | Kafka       | 2 GB   | gcp-a ×3         |
    | Cassandra   | 4 GB   | gcp-a ×3         |
    | Java/RMI    | 1.5 GB | gcp-a node-02/03 |
+   | Schema Registry | 768 MB | gcp-a node-01 (sin Java) |
    | **subtotal**| **~8 GB** | + ~1.5 GB SO + ~6 GB page cache |
    | HBase RS    | 3 GB   | gcp-b ×3         |
    | Elasticsearch | 3 GB | gcp-b node-03    |

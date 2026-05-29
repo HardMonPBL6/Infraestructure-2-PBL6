@@ -9,7 +9,7 @@ OpenTofu (Terraform-compatible) infrastructure-as-code for **WebHardMon** — a 
 | Cloud | Platform | Services |
 |-------|----------|----------|
 | `local` | Proxmox VE (LXC containers) | NiFi, HDFS ×3, MapReduce, Harbor |
-| `gcp-a` | GCP europe-southwest1 | Kafka ×3, ZooKeeper ×3, Java/RMI ×2, Cassandra ×3 |
+| `gcp-a` | GCP europe-southwest1 | Kafka ×3, ZooKeeper ×3, Schema Registry, Java/RMI ×2, Cassandra ×3 |
 | `gcp-b` | GCP europe-west1 | MySQL, HBase ×3, Elasticsearch, Grafana |
 
 **GCP cost model — 3 shared spot VMs per cloud.** Each GCP cloud runs **3 `e2-standard-4` Spot VMs** (`gcp_spot = true`, `instance_termination_action = DELETE`) that co-locate services as containers, keeping one instance of each clustered service per node (real 3-node distributed cluster across 3 hosts). The per-node layout lives in `var.gcp_a_nodes` / `var.gcp_b_nodes`; machine type, disk, spot and termination action are `var.gcp_default_machine_type`, `var.gcp_node_disk_gb`, `var.gcp_spot`, `var.gcp_spot_termination_action`. Because Spot+DELETE drops the boot disk on preemption, Ansible deploys must be idempotent and stateful data is rebuildable. The local Proxmox cloud is unchanged (one LXC per node).
@@ -33,6 +33,8 @@ Keys are generated manually (`wg genkey | tee private.key | wg pubkey > public.k
 - `licencia` — API keys bound to a specific laptop hostname (`portatil`); the collector sends `(codigo, portatil)` and NiFi validates `activa = 1` via JDBC LookupService before routing to Kafka
 
 This is separate from Grafana's own internal auth and NiFi's own internal auth.
+
+**Avro — Confluent Schema Registry.** Avro is the on-the-wire format for Kafka. A Confluent Schema Registry singleton runs on GCP-A `node-01` (co-located with Kafka, on the node that has no Java so RAM is free). NiFi serializes records against it (`ConfluentSchemaRegistry` controller service → `nifi_schema_registry_url`) and the Java consumer deserializes via `KafkaAvroDeserializer` (`javaapp_schema_registry_url`). Schemas are versioned and stored in Kafka's internal `_schemas` topic; compatibility is `BACKWARD` so the collector's schema can evolve without breaking deployed consumers. NiFi (local cloud) reaches the registry over WireGuard via node-01's gateway IP.
 
 **External ingest — Cloudflare Tunnel.** The collector runs on **end-user PCs outside all three clouds**, so it can't reach NiFi via WireGuard (not peers) or the LAN (behind home NAT). `modules/cloudflare-tunnel` publishes NiFi's ingest listener at `ingest.<zone>` via a named Cloudflare Tunnel: `cloudflared` runs on the NiFi CT and dials **out** to Cloudflare (no port-forward, no inbound firewall). **Cloudflare Access** with a service token authenticates collectors at the edge. WireGuard carries only the inter-cloud mesh + admin SSH; Cloudflare Tunnel handles external→ingest only. Gated by `var.cloudflare_enabled`; outputs `cloudflared_tunnel_token` (for Ansible) + `collector_access_client_id/secret` (for the collector installer).
 
