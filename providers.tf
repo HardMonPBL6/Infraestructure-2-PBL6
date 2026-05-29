@@ -1,4 +1,4 @@
-# Proxmox: se accede a la API via Tailscale al nodo en 10.10.1.15:8006.
+# Proxmox: se accede a la API via WireGuard (gateway local) al nodo en 10.10.1.15:8006.
 # Credenciales por variables sensibles (token recomendado).
 provider "proxmox" {
   endpoint  = var.proxmox_endpoint
@@ -45,13 +45,6 @@ provider "google-beta" {
   region      = var.gcp_b_region
   zone        = var.gcp_b_zone
   credentials = var.gcp_b_credentials_file != "" ? file(var.gcp_b_credentials_file) : null
-}
-
-# Tailscale: OAuth client con scopes para keys y ACL.
-provider "tailscale" {
-  tailnet             = var.tailscale_tailnet
-  oauth_client_id     = var.tailscale_oauth_client_id
-  oauth_client_secret = var.tailscale_oauth_client_secret
 }
 
 # Cloudflare: API token (scopes: Account > Cloudflare Tunnel:Edit + Access:Edit,

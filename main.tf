@@ -2,21 +2,26 @@
 # WebHardMon — composicion de las tres nubes
 # =============================================================================
 # Orden:
-#  1. Tailscale (keys + ACL)
+#  1. WireGuard — IPs estaticas para los gateways GCP
 #  2. Nube local: plantilla LXC + hookscripts + CTs por rol
 #  3. GCP-A: red + service account + VMs + registry
 #  4. GCP-B: red + service account + VMs + registry
 # =============================================================================
 
-# ---- 1. Tailscale -----------------------------------------------------------
+# ---- 1. WireGuard — IPs estaticas para los gateways GCP --------------------
+# Un gateway por nube (node-01 publico). Se reservan IPs estaticas para que la
+# configuracion de peers WireGuard no cambie si la VM spot es recreada.
 
-module "tailscale" {
-  source       = "./modules/tailscale"
-  project_name = var.project_name
-  # local NO se une al tailnet: el portatil actua de subnet router publicando
-  # 10.10.2.0/24 y 10.10.3.0/24 al tailnet. Asi evitamos instalar Tailscale en
-  # cada CT y conservamos un solo punto de control de rutas LAN.
-  clouds = ["gcp-a", "gcp-b"]
+resource "google_compute_address" "gcp_a_gateway" {
+  provider = google.gcp_a
+  name     = "${var.project_name}-a-gw-wg"
+  region   = var.gcp_a_region
+}
+
+resource "google_compute_address" "gcp_b_gateway" {
+  provider = google.gcp_b
+  name     = "${var.project_name}-b-gw-wg"
+  region   = var.gcp_b_region
 }
 
 # =============================================================================
@@ -36,6 +41,17 @@ resource "proxmox_download_file" "ubuntu_lxc" {
 # Reparto de CTs por rol -> lista plana usada para los CTs y para el inventario.
 locals {
   local_cloud_tag = "local"
+
+  # WireGuard: IPs fijas dentro de wg_vpn_cidr (10.0.0.0/24 por defecto)
+  wg_vpn_prefix      = split("/", var.wg_vpn_cidr)[1]
+  wg_mgmt_ip         = cidrhost(var.wg_vpn_cidr, 1)   # nodo de gestion
+  wg_local_gw_ip     = cidrhost(var.wg_vpn_cidr, 10)  # gateway local
+  wg_gcp_a_gw_ip     = cidrhost(var.wg_vpn_cidr, 20)  # gateway GCP-A
+  wg_gcp_b_gw_ip     = cidrhost(var.wg_vpn_cidr, 30)  # gateway GCP-B
+
+  # IPs internas estaticas de los gateways (para routing de nodos privados)
+  gcp_a_gateway_internal_ip = cidrhost(var.gcp_a_public_cidr, 10)
+  gcp_b_gateway_internal_ip = cidrhost(var.gcp_b_public_cidr, 10)
 
   # Cada entrada: { role, idx, public, cores?, memory?, disk_gb? }
   local_ct_specs = concat(
@@ -166,12 +182,17 @@ locals {
   # 3 nodos compartidos: cada VM aloja una instancia de cada servicio de su lista
   # de roles (Kafka+ZK+Cassandra en los 3, Java en 2) -> cluster distribuido de
   # 3 nodos sobre 3 VMs spot en vez de 11 VMs on-demand.
+  # network_ip: IP interna estatica (offset +10 en su subred para evitar las
+  # reservadas por GCP en .0-.1 y el rango DHCP bajo). i+10 da .10, .11, .12.
   gcp_a_vms = {
     for i, n in var.gcp_a_nodes :
     format("node-%02d", i + 1) => {
-      hostname = format("%s-a-node-%02d", var.project_name, i + 1)
-      roles    = n.roles
-      public   = n.public
+      hostname   = format("%s-a-node-%02d", var.project_name, i + 1)
+      roles      = n.roles
+      public     = n.public
+      is_gateway = n.public
+      network_ip = n.public ? cidrhost(var.gcp_a_public_cidr, i + 10) : cidrhost(var.gcp_a_private_cidr, i + 10)
+      wg_ip      = n.public ? "${local.wg_gcp_a_gw_ip}/${local.wg_vpn_prefix}" : null
     }
   }
 }
@@ -189,19 +210,47 @@ module "gcp_a_vm" {
   disk_gb                 = var.gcp_node_disk_gb
   subnet_id               = each.value.public ? module.gcp_a_network.public_subnet_id : module.gcp_a_network.private_subnet_id
   public                  = each.value.public
+  network_ip              = each.value.network_ip
+  external_ip_address     = each.value.is_gateway ? google_compute_address.gcp_a_gateway.address : null
   service_account         = google_service_account.gcp_a.email
   labels = {
     project = var.project_name
     cloud   = "gcp-a"
     roles   = join("-", each.value.roles)
   }
-  user_data = templatefile("${path.module}/cloud-init/tailscale.yaml.tftpl", {
-    project_name      = var.project_name
-    hostname          = each.value.hostname
-    cloud_tag         = local.gcp_a_cloud_tag
-    role_tags         = join(",", [for r in each.value.roles : "tag:${r}"])
-    tailscale_authkey = module.tailscale.auth_keys["gcp-a"]
-    ssh_pubkey        = var.local_ct_ssh_pubkey
+  user_data = templatefile("${path.module}/cloud-init/wireguard.yaml.tftpl", {
+    hostname       = each.value.hostname
+    ssh_pubkey     = var.local_ct_ssh_pubkey
+    is_gateway     = each.value.is_gateway
+    wg_ip          = each.value.is_gateway ? each.value.wg_ip : ""
+    wg_port        = var.wg_port
+    wg_private_key = each.value.is_gateway ? var.wg_gcp_a_private_key : ""
+    wg_gateway_ip  = local.gcp_a_gateway_internal_ip
+    remote_cidrs = each.value.is_gateway ? [] : [
+      var.wg_vpn_cidr,
+      var.local_public_cidr, var.local_private_cidr,
+      var.gcp_b_public_cidr, var.gcp_b_private_cidr,
+    ]
+    wg_peers = each.value.is_gateway ? [
+      {
+        name       = "management"
+        public_key = var.wg_mgmt_public_key
+        endpoint   = var.wg_mgmt_endpoint
+        allowed_ips = ["${local.wg_mgmt_ip}/32"]
+      },
+      {
+        name        = "local-gateway"
+        public_key  = var.wg_local_gw_public_key
+        endpoint    = var.wg_local_gw_endpoint
+        allowed_ips = ["${local.wg_local_gw_ip}/32", var.local_public_cidr, var.local_private_cidr]
+      },
+      {
+        name        = "gcp-b-gateway"
+        public_key  = var.wg_gcp_b_public_key
+        endpoint    = google_compute_address.gcp_b_gateway.address
+        allowed_ips = ["${local.wg_gcp_b_gw_ip}/32", var.gcp_b_public_cidr, var.gcp_b_private_cidr]
+      },
+    ] : []
   })
 }
 
@@ -235,14 +284,15 @@ module "gcp_b_registry" {
 
 locals {
   gcp_b_cloud_tag = "gcp_b"
-  # 3 nodos compartidos: HBase en los 3 (regionservers distribuidos) +
-  # MySQL / Elasticsearch / Grafana repartidos uno por VM.
   gcp_b_vms = {
     for i, n in var.gcp_b_nodes :
     format("node-%02d", i + 1) => {
-      hostname = format("%s-b-node-%02d", var.project_name, i + 1)
-      roles    = n.roles
-      public   = n.public
+      hostname   = format("%s-b-node-%02d", var.project_name, i + 1)
+      roles      = n.roles
+      public     = n.public
+      is_gateway = n.public
+      network_ip = n.public ? cidrhost(var.gcp_b_public_cidr, i + 10) : cidrhost(var.gcp_b_private_cidr, i + 10)
+      wg_ip      = n.public ? "${local.wg_gcp_b_gw_ip}/${local.wg_vpn_prefix}" : null
     }
   }
 }
@@ -260,18 +310,46 @@ module "gcp_b_vm" {
   disk_gb                 = var.gcp_node_disk_gb
   subnet_id               = each.value.public ? module.gcp_b_network.public_subnet_id : module.gcp_b_network.private_subnet_id
   public                  = each.value.public
+  network_ip              = each.value.network_ip
+  external_ip_address     = each.value.is_gateway ? google_compute_address.gcp_b_gateway.address : null
   service_account         = google_service_account.gcp_b.email
   labels = {
     project = var.project_name
     cloud   = "gcp-b"
     roles   = join("-", each.value.roles)
   }
-  user_data = templatefile("${path.module}/cloud-init/tailscale.yaml.tftpl", {
-    project_name      = var.project_name
-    hostname          = each.value.hostname
-    cloud_tag         = local.gcp_b_cloud_tag
-    role_tags         = join(",", [for r in each.value.roles : "tag:${r}"])
-    tailscale_authkey = module.tailscale.auth_keys["gcp-b"]
-    ssh_pubkey        = var.local_ct_ssh_pubkey
+  user_data = templatefile("${path.module}/cloud-init/wireguard.yaml.tftpl", {
+    hostname       = each.value.hostname
+    ssh_pubkey     = var.local_ct_ssh_pubkey
+    is_gateway     = each.value.is_gateway
+    wg_ip          = each.value.is_gateway ? each.value.wg_ip : ""
+    wg_port        = var.wg_port
+    wg_private_key = each.value.is_gateway ? var.wg_gcp_b_private_key : ""
+    wg_gateway_ip  = local.gcp_b_gateway_internal_ip
+    remote_cidrs = each.value.is_gateway ? [] : [
+      var.wg_vpn_cidr,
+      var.local_public_cidr, var.local_private_cidr,
+      var.gcp_a_public_cidr, var.gcp_a_private_cidr,
+    ]
+    wg_peers = each.value.is_gateway ? [
+      {
+        name       = "management"
+        public_key = var.wg_mgmt_public_key
+        endpoint   = var.wg_mgmt_endpoint
+        allowed_ips = ["${local.wg_mgmt_ip}/32"]
+      },
+      {
+        name        = "local-gateway"
+        public_key  = var.wg_local_gw_public_key
+        endpoint    = var.wg_local_gw_endpoint
+        allowed_ips = ["${local.wg_local_gw_ip}/32", var.local_public_cidr, var.local_private_cidr]
+      },
+      {
+        name        = "gcp-a-gateway"
+        public_key  = var.wg_gcp_a_public_key
+        endpoint    = google_compute_address.gcp_a_gateway.address
+        allowed_ips = ["${local.wg_gcp_a_gw_ip}/32", var.gcp_a_public_cidr, var.gcp_a_private_cidr]
+      },
+    ] : []
   })
 }

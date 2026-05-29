@@ -13,7 +13,7 @@ variable "project_name" {
 # -----------------------------------------------------------------------------
 
 variable "proxmox_endpoint" {
-  description = "URL de la API de Proxmox VE (accesible via Tailscale)."
+  description = "URL de la API de Proxmox VE (accesible via WireGuard)."
   type        = string
   default     = "https://10.10.1.15:8006/"
 }
@@ -187,25 +187,66 @@ variable "gcp_b_private_cidr" {
 }
 
 # -----------------------------------------------------------------------------
-# Tailscale
+# WireGuard VPN inter-nube
 # -----------------------------------------------------------------------------
+# Un gateway por nube (el node-01 publico de cada GCP cloud + el gateway local).
+# Genera los keypairs con: wg genkey | tee private.key | wg pubkey > public.key
+# Las claves privadas van en terraform.tfvars (sensible, gitignoreado).
 
-variable "tailscale_tailnet" {
-  description = "Nombre del tailnet (p.ej. 'example.com' o '-' para el por defecto del OAuth)."
-  type        = string
-  default     = "-"
+variable "wg_port" {
+  description = "Puerto UDP de WireGuard en todos los gateways."
+  type        = number
+  default     = 51820
 }
 
-variable "tailscale_oauth_client_id" {
-  description = "OAuth client id del tailnet (scope: devices:write, acl)."
+variable "wg_vpn_cidr" {
+  description = "CIDR de la subred VPN WireGuard. No debe solaparse con 10.10.x, 10.20.x, 10.30.x."
+  type        = string
+  default     = "10.0.0.0/24"
+}
+
+variable "wg_mgmt_public_key" {
+  description = "Clave publica WireGuard del nodo de gestion (portatil del operador)."
+  type        = string
+}
+
+variable "wg_mgmt_endpoint" {
+  description = "IP publica o DNS del nodo de gestion. Puede dejarse vacio si el operador siempre inicia la conexion con PersistentKeepalive."
+  type        = string
+  default     = ""
+}
+
+variable "wg_local_gw_public_key" {
+  description = "Clave publica WireGuard del gateway de la nube local (gestionado fuera de OpenTofu)."
+  type        = string
+}
+
+variable "wg_local_gw_endpoint" {
+  description = "IP publica o DNS del gateway de la nube local."
+  type        = string
+  default     = ""
+}
+
+variable "wg_gcp_a_private_key" {
+  description = "Clave privada WireGuard del gateway de GCP-A (node-01). Sensible."
   type        = string
   sensitive   = true
 }
 
-variable "tailscale_oauth_client_secret" {
-  description = "OAuth client secret del tailnet."
+variable "wg_gcp_a_public_key" {
+  description = "Clave publica WireGuard del gateway de GCP-A (derivada de la privada con wg pubkey)."
+  type        = string
+}
+
+variable "wg_gcp_b_private_key" {
+  description = "Clave privada WireGuard del gateway de GCP-B (node-01). Sensible."
   type        = string
   sensitive   = true
+}
+
+variable "wg_gcp_b_public_key" {
+  description = "Clave publica WireGuard del gateway de GCP-B (derivada de la privada con wg pubkey)."
+  type        = string
 }
 
 # -----------------------------------------------------------------------------
@@ -287,7 +328,7 @@ variable "topology" {
 # cada servicio por VM (defendible frente a RGI320: siguen siendo 3 hosts).
 
 variable "gcp_a_nodes" {
-  description = "Nodos compartidos de GCP-A (streaming). 'public' = NIC en subred publica con IP externa efimera (borde / travesia NAT Tailscale); false = subred privada, egress por Cloud NAT."
+  description = "Nodos compartidos de GCP-A (streaming). 'public' = NIC en subred publica con IP externa estatica (gateway WireGuard); false = subred privada, egress por Cloud NAT."
   type = list(object({
     roles  = list(string)
     public = bool

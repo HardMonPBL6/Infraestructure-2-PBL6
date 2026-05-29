@@ -9,7 +9,7 @@ cassandra_cluster_name: "webhardmon-stream"
 # Seeds = primeros 2 nodos del grupo (suficiente para bootstrap del anillo).
 cassandra_seeds: "{{ cassandra_nodes[:2] | join(',') }}"
 
-# listen/broadcast = hostname Tailscale del nodo.
+# listen/broadcast = IP interna GCP del nodo (accesible via WireGuard entre nubes).
 cassandra_listen_address: "{{ inventory_hostname }}"
 
 # Sharding por token (requisito N2): vnodes + RF=3.

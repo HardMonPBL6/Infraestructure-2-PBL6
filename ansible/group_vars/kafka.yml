@@ -16,5 +16,5 @@ kafka_default_partitions: 3
 kafka_default_replication_factor: 3
 kafka_min_insync_replicas: 2
 
-# Listener anunciado = hostname Tailscale del propio nodo.
+# Listener anunciado = IP interna GCP del nodo (accesible via WireGuard entre nubes).
 kafka_advertised_listener: "PLAINTEXT://{{ inventory_hostname }}:{{ kafka_port }}"

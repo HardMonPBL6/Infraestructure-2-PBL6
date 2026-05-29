@@ -1,0 +1,83 @@
+#cloud-config
+# Cloud-init para VMs GCP (Ubuntu 24.04).
+# Nodos gateway (node-01, publico): instalan WireGuard y levantan wg0 con
+# configuracion completa de peers. Nodos privados (node-02/03): instalan solo
+# las rutas estaticas para que el trafico inter-nube pase por su gateway.
+hostname: ${hostname}
+manage_etc_hosts: true
+
+users:
+  - name: ubuntu
+    groups: [sudo]
+    sudo: ALL=(ALL) NOPASSWD:ALL
+    shell: /bin/bash
+    ssh_authorized_keys:
+      - ${ssh_pubkey}
+
+package_update: true
+package_upgrade: false
+packages:
+  - wireguard
+  - iptables
+
+write_files:
+  - path: /etc/ssh/sshd_config.d/10-webhardmon.conf
+    permissions: '0644'
+    content: |
+      PermitRootLogin no
+      PasswordAuthentication no
+      KbdInteractiveAuthentication no
+      ChallengeResponseAuthentication no
+  - path: /etc/sysctl.d/99-wireguard.conf
+    permissions: '0644'
+    content: |
+      net.ipv4.ip_forward = 1
+%{ if is_gateway ~}
+  - path: /etc/wireguard/wg0.conf
+    permissions: '0600'
+    content: |
+      [Interface]
+      Address    = ${wg_ip}
+      ListenPort = ${wg_port}
+      PrivateKey = ${wg_private_key}
+      PostUp   = iptables -A FORWARD -i wg0 -j ACCEPT; iptables -A FORWARD -o wg0 -j ACCEPT; iptables -t nat -A POSTROUTING -o ens4 -j MASQUERADE
+      PostDown = iptables -D FORWARD -i wg0 -j ACCEPT; iptables -D FORWARD -o wg0 -j ACCEPT; iptables -t nat -D POSTROUTING -o ens4 -j MASQUERADE
+%{ for peer in wg_peers ~}
+
+      [Peer]
+      # ${peer.name}
+      PublicKey           = ${peer.public_key}
+%{ if peer.endpoint != "" ~}
+      Endpoint            = ${peer.endpoint}:${wg_port}
+%{ endif ~}
+      AllowedIPs          = ${join(", ", peer.allowed_ips)}
+      PersistentKeepalive = 25
+%{ endfor ~}
+%{ else ~}
+  - path: /etc/systemd/system/wg-routes.service
+    permissions: '0644'
+    content: |
+      [Unit]
+      Description=Rutas estaticas inter-nube via gateway WireGuard
+      After=network-online.target
+      Wants=network-online.target
+
+      [Service]
+      Type=oneshot
+      RemainAfterExit=yes
+%{ for cidr in remote_cidrs ~}
+      ExecStart=/sbin/ip route replace ${cidr} via ${wg_gateway_ip}
+%{ endfor ~}
+
+      [Install]
+      WantedBy=multi-user.target
+%{ endif ~}
+
+runcmd:
+  - systemctl reload ssh || systemctl reload sshd
+  - sysctl --system
+%{ if is_gateway ~}
+  - systemctl enable --now wg-quick@wg0
+%{ else ~}
+  - systemctl enable --now wg-routes.service
+%{ endif ~}

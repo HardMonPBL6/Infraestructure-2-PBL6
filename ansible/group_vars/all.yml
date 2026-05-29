@@ -21,7 +21,7 @@ docker_registry_host: ""
 # Presupuesto de RAM del nodo más denso (gcp-a node-02/03). Sirve de tope
 # global; cada servicio define su heap dentro de este presupuesto. Ver README.
 node_mem_total_mb: 16384
-node_mem_reserved_os_mb: 1536   # SO + dockerd + tailscaled
+node_mem_reserved_os_mb: 1536   # SO + dockerd + wg-quick
 
 # --- Registro de contenedores ----------------------------------------------
 # La URL real por nube la fija OpenTofu (output container_registries). Se
@@ -30,7 +30,7 @@ container_registry: "localhost"          # placeholder; override por nube
 image_tag: "latest"
 
 # --- Helpers de descubrimiento de cluster -----------------------------------
-# Hostnames Tailscale (MagicDNS) = inventory_hostname para los nodos GCP.
+# IPs WireGuard (gateways) o IPs internas GCP (nodos privados) = ansible_host en el inventario.
 # Estas listas las consumen las plantillas de cada servicio.
 zookeeper_ensemble: "{{ groups['zookeeper'] | default([]) }}"
 kafka_brokers: "{{ groups['kafka'] | default([]) }}"

@@ -38,10 +38,23 @@ gcp_b_credentials_file = "C:/Users/sebastian/.gcp/webhardmon-b.json"
 #   { roles = ["hbase", "elasticsearch"], public = false },
 # ]
 
-# ---- Tailscale --------------------------------------------------------------
-tailscale_tailnet             = "-"   # "-" usa el tailnet por defecto del OAuth client
-tailscale_oauth_client_id     = "k123abc..."
-tailscale_oauth_client_secret = "tskey-client-..."
+# ---- WireGuard VPN inter-nube -----------------------------------------------
+# Genera los keypairs con estos comandos (uno por gateway):
+#   wg genkey | tee gcp-a-private.key | wg pubkey > gcp-a-public.key
+#   wg genkey | tee gcp-b-private.key | wg pubkey > gcp-b-public.key
+#   wg genkey | tee mgmt-private.key  | wg pubkey > mgmt-public.key
+#   wg genkey | tee local-gw-private.key | wg pubkey > local-gw-public.key
+# Las claves privadas del nodo de gestion y el gateway local se configuran
+# manualmente en esos hosts (fuera de OpenTofu).
+
+wg_gcp_a_private_key   = "base64privkeyA=="
+wg_gcp_a_public_key    = "base64pubkeyA=="
+wg_gcp_b_private_key   = "base64privkeyB=="
+wg_gcp_b_public_key    = "base64pubkeyB=="
+wg_mgmt_public_key     = "base64pubkeyMgmt=="
+wg_local_gw_public_key = "base64pubkeyLocal=="
+# wg_mgmt_endpoint     = "ddns.example.com"   # IP/DNS del portatil; omitir si usa keepalive
+# wg_local_gw_endpoint = "1.2.3.4"            # IP publica del gateway local
 
 # ---- Cloudflare Tunnel (ingesta externa de los collectors) ------------------
 # Publica el endpoint de ingesta de NiFi en ingest.<zona> sin abrir NAT/VPN.

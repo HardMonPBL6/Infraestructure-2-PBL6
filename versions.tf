@@ -14,10 +14,6 @@ terraform {
       source  = "hashicorp/google-beta"
       version = "~> 6.0"
     }
-    tailscale = {
-      source  = "tailscale/tailscale"
-      version = "~> 0.17"
-    }
     cloudflare = {
       source  = "cloudflare/cloudflare"
       version = "~> 4.52"

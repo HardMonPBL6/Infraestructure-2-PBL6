@@ -1,9 +1,8 @@
 # Generado por OpenTofu — NO editar a mano.
 #
-# Hosts locales: IP LAN (10.10.2.x / 10.10.3.x). Anunciadas al tailnet por el
-# subnet router del portatil del operador. Los CTs NO ejecutan Tailscale.
-# Hosts GCP: hostname Tailscale (MagicDNS) — cada VM se une al tailnet via
-# cloud-init.
+# Hosts locales: IP LAN (10.10.2.x / 10.10.3.x).
+# Hosts GCP gateway (node-01): IP WireGuard VPN (10.0.0.20 / 10.0.0.30).
+# Hosts GCP privados (node-02/03): IP interna GCP, alcanzable via el gateway.
 
 [all:vars]
 ansible_user=ubuntu

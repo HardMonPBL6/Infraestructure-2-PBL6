@@ -18,6 +18,16 @@ variable "zone" { type = string }
 variable "machine_type" { type = string }
 variable "subnet_id" { type = string }
 variable "public" { type = bool }
+variable "network_ip" {
+  description = "IP interna estatica. Null = DHCP."
+  type        = string
+  default     = null
+}
+variable "external_ip_address" {
+  description = "IP externa estatica pre-asignada (google_compute_address). Null = efimera."
+  type        = string
+  default     = null
+}
 variable "user_data" { type = string }
 variable "service_account" { type = string }
 variable "labels" {
@@ -55,13 +65,15 @@ resource "google_compute_instance" "this" {
 
   network_interface {
     subnetwork = var.subnet_id
+    network_ip = var.network_ip
 
-    # IP externa efímera solo en la subred publica — ayuda a la travesia NAT
-    # de Tailscale en el primer arranque. Privadas: sin IP externa, egress
-    # por Cloud NAT.
+    # IP externa solo en subred publica. Los gateways WireGuard usan IP
+    # estatica pre-asignada (var.external_ip_address); el resto efimera.
     dynamic "access_config" {
       for_each = var.public ? [1] : []
-      content {}
+      content {
+        nat_ip = var.external_ip_address
+      }
     }
   }
 

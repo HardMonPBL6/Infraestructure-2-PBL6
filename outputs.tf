@@ -2,8 +2,8 @@
 # Outputs e inventario Ansible
 # =============================================================================
 #
-# Hosts locales -> IP LAN (subnet router en el portatil enruta esos rangos
-# via Tailscale). Hosts GCP -> hostname Tailscale (MagicDNS).
+# Hosts locales -> IP LAN. Hosts GCP gateway -> IP WireGuard (10.0.0.x).
+# Hosts GCP privados -> IP interna GCP, alcanzable via el gateway WireGuard.
 
 locals {
   # Cada host lleva una LISTA de roles. Los CTs locales tienen un unico rol;
@@ -18,13 +18,13 @@ locals {
     }],
     [for k, v in local.gcp_a_vms : {
       name         = v.hostname
-      ansible_host = "" # MagicDNS resuelve el hostname
+      ansible_host = v.is_gateway ? local.wg_gcp_a_gw_ip : v.network_ip
       roles        = v.roles
       cloud        = "gcp-a"
     }],
     [for k, v in local.gcp_b_vms : {
       name         = v.hostname
-      ansible_host = ""
+      ansible_host = v.is_gateway ? local.wg_gcp_b_gw_ip : v.network_ip
       roles        = v.roles
       cloud        = "gcp-b"
     }],
@@ -53,7 +53,7 @@ resource "local_file" "ansible_inventory" {
 # ---- Outputs visibles ------------------------------------------------------
 
 output "hosts_by_role" {
-  description = "Hosts agrupados por rol con su ansible_host (LAN IP para locales, '' para GCP via MagicDNS)."
+  description = "Hosts agrupados por rol con su ansible_host (LAN IP para locales, WireGuard IP para gateways GCP, IP interna GCP para nodos privados)."
   value       = local.groups_by_role
 }
 
@@ -76,8 +76,12 @@ output "ansible_inventory_path" {
   value       = local_file.ansible_inventory.filename
 }
 
-output "tailscale_acl_id" {
-  value = module.tailscale.acl_applied
+output "wireguard_gateway_ips" {
+  description = "IPs publicas estaticas de los gateways WireGuard (necesarias para configurar peers externos: nodo de gestion y gateway local)."
+  value = {
+    "gcp-a" = google_compute_address.gcp_a_gateway.address
+    "gcp-b" = google_compute_address.gcp_b_gateway.address
+  }
 }
 
 # ---- Cloudflare Tunnel (ingesta externa) -----------------------------------

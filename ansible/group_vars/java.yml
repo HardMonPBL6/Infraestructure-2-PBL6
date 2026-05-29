@@ -10,5 +10,5 @@ javaapp_rmi_object_port: 1100
 javaapp_kafka_bootstrap: "{{ kafka_brokers | map('regex_replace', '$', ':9092') | join(',') }}"
 javaapp_cassandra_contact_points: "{{ cassandra_nodes | join(',') }}"
 
-# hostname RMI anunciado = Tailscale (evita que RMI anuncie una IP privada).
+# hostname RMI anunciado = IP interna GCP del nodo (accesible via WireGuard entre nubes).
 javaapp_rmi_server_hostname: "{{ inventory_hostname }}"

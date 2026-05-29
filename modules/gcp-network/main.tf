@@ -1,6 +1,6 @@
 # VPC con 2 subredes (publica/privada), Cloud Router + Cloud NAT para que la
-# subred privada tenga egress (necesario para que tailscaled coordine), y
-# reglas de firewall minimas (sin SSH desde Internet — SSH va por Tailscale).
+# subred privada tenga egress (actualizaciones, pull de imagenes, etc.), y
+# reglas de firewall minimas (sin SSH desde Internet — SSH va por WireGuard).
 
 terraform {
   required_providers {
@@ -35,7 +35,7 @@ resource "google_compute_subnetwork" "public" {
   ip_cidr_range = var.public_cidr
   region        = var.region
   network       = google_compute_network.vpc.id
-  description   = "Subred publica: instancias de borde (Kafka brokers / Grafana / MySQL frontend). IP externa para travesia NAT de Tailscale."
+  description   = "Subred publica: instancias de borde (Kafka brokers / Grafana / MySQL frontend). IP externa estatica para el gateway WireGuard."
 }
 
 resource "google_compute_subnetwork" "private" {
@@ -44,7 +44,7 @@ resource "google_compute_subnetwork" "private" {
   region                   = var.region
   network                  = google_compute_network.vpc.id
   private_ip_google_access = true
-  description              = "Subred privada: nodos de cluster (Cassandra/HBase/ES). Sin IP externa; egress por Cloud NAT solo para coordinacion Tailscale."
+  description              = "Subred privada: nodos de cluster (Cassandra/HBase/ES). Sin IP externa; egress por Cloud NAT."
 }
 
 resource "google_compute_router" "router" {
@@ -68,18 +68,18 @@ resource "google_compute_router_nat" "nat" {
 
 # ---- Firewall --------------------------------------------------------------
 # NOTA: NO se abre SSH (22) desde 0.0.0.0/0. El acceso administrativo va por
-# Tailscale. Solo permitimos UDP 41641 (Tailscale direct connection) e ICMP.
+# WireGuard. Solo permitimos UDP 51820 (WireGuard) e ICMP.
 
-resource "google_compute_firewall" "allow_tailscale" {
-  name          = "${var.name_prefix}-allow-tailscale"
+resource "google_compute_firewall" "allow_wireguard" {
+  name          = "${var.name_prefix}-allow-wireguard"
   network       = google_compute_network.vpc.id
-  description   = "UDP 41641: Tailscale direct-connect (mesh entre nubes)."
+  description   = "UDP 51820: WireGuard VPN inter-nube."
   direction     = "INGRESS"
   source_ranges = ["0.0.0.0/0"]
 
   allow {
     protocol = "udp"
-    ports    = ["41641"]
+    ports    = ["51820"]
   }
 }
 
@@ -105,12 +105,18 @@ resource "google_compute_firewall" "allow_internal" {
   allow { protocol = "icmp" }
 }
 
-resource "google_compute_firewall" "allow_tailnet" {
-  name          = "${var.name_prefix}-allow-tailnet"
+variable "wg_vpn_cidr" {
+  description = "CIDR de la VPN WireGuard. Solo se permite trafico de servicio desde esta red."
+  type        = string
+  default     = "10.0.0.0/24"
+}
+
+resource "google_compute_firewall" "allow_wg_vpn" {
+  name          = "${var.name_prefix}-allow-wg-vpn"
   network       = google_compute_network.vpc.id
-  description   = "Tráfico desde el CGNAT de Tailscale (100.64.0.0/10) — todos los servicios via tailnet."
+  description   = "Trafico de servicios desde la VPN WireGuard (10.0.0.0/24 por defecto)."
   direction     = "INGRESS"
-  source_ranges = ["100.64.0.0/10"]
+  source_ranges = [var.wg_vpn_cidr]
 
   allow { protocol = "tcp" }
   allow { protocol = "udp" }

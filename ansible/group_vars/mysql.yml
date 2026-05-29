@@ -1,5 +1,7 @@
 ---
-# group_vars/mysql.yml — singleton (gcp-b node-02). Metadatos + star schema.
+# group_vars/mysql.yml — singleton (gcp-b node-02).
+# Base de datos de la aplicación: empresas, administradores del panel y
+# licencias (API keys por portátil). NO es un almacén analítico.
 
 mysql_image: "{{ container_registry }}/mysql:{{ image_tag }}"
 mysql_port: 3306
@@ -7,5 +9,11 @@ mysql_innodb_buffer_pool_mb: 2048      # cabe junto al RegionServer HBase del no
 mysql_database: webhardmon
 mysql_bind_host: "{{ inventory_hostname }}"
 
+# El init script se monta en /docker-entrypoint-initdb.d/ y MySQL lo ejecuta
+# al crear el volumen por primera vez. Ruta en el host (rol de Ansible lo copia):
+mysql_init_sql: "docker/mysql/init.sql"
+
 # Credenciales: NO en claro. Inyectar por ansible-vault / variable de entorno.
 # mysql_root_password: "{{ vault_mysql_root_password }}"
+# mysql_app_user:     "webhardmon"
+# mysql_app_password: "{{ vault_mysql_app_password }}"
