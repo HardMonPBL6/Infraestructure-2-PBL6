@@ -43,11 +43,11 @@ locals {
   local_cloud_tag = "local"
 
   # WireGuard: IPs fijas dentro de wg_vpn_cidr (10.0.0.0/24 por defecto)
-  wg_vpn_prefix      = split("/", var.wg_vpn_cidr)[1]
-  wg_mgmt_ip         = cidrhost(var.wg_vpn_cidr, 1)   # nodo de gestion
-  wg_local_gw_ip     = cidrhost(var.wg_vpn_cidr, 10)  # gateway local
-  wg_gcp_a_gw_ip     = cidrhost(var.wg_vpn_cidr, 20)  # gateway GCP-A
-  wg_gcp_b_gw_ip     = cidrhost(var.wg_vpn_cidr, 30)  # gateway GCP-B
+  wg_vpn_prefix  = split("/", var.wg_vpn_cidr)[1]
+  wg_mgmt_ip     = cidrhost(var.wg_vpn_cidr, 1)  # nodo de gestion
+  wg_local_gw_ip = cidrhost(var.wg_vpn_cidr, 10) # gateway local
+  wg_gcp_a_gw_ip = cidrhost(var.wg_vpn_cidr, 20) # gateway GCP-A
+  wg_gcp_b_gw_ip = cidrhost(var.wg_vpn_cidr, 30) # gateway GCP-B
 
   # IPs internas estaticas de los gateways (para routing de nodos privados)
   gcp_a_gateway_internal_ip = cidrhost(var.gcp_a_public_cidr, 10)
@@ -233,9 +233,9 @@ module "gcp_a_vm" {
     ]
     wg_peers = each.value.is_gateway ? [
       {
-        name       = "management"
-        public_key = var.wg_mgmt_public_key
-        endpoint   = var.wg_mgmt_endpoint
+        name        = "management"
+        public_key  = var.wg_mgmt_public_key
+        endpoint    = var.wg_mgmt_endpoint
         allowed_ips = ["${local.wg_mgmt_ip}/32"]
       },
       {
@@ -333,9 +333,9 @@ module "gcp_b_vm" {
     ]
     wg_peers = each.value.is_gateway ? [
       {
-        name       = "management"
-        public_key = var.wg_mgmt_public_key
-        endpoint   = var.wg_mgmt_endpoint
+        name        = "management"
+        public_key  = var.wg_mgmt_public_key
+        endpoint    = var.wg_mgmt_endpoint
         allowed_ips = ["${local.wg_mgmt_ip}/32"]
       },
       {
