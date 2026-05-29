@@ -1,0 +1,53 @@
+#!/usr/bin/env bash
+# Hookscript Proxmox para CTs WebHardMon.
+# Provisiona usuario ubuntu, SSH, hardening basico. NO instala Tailscale:
+# el acceso al CT va por la red LAN (10.10.2.0/24 / 10.10.3.0/24) anunciada
+# al tailnet por el subnet router del portatil.
+set -eu
+
+vmid="$1"
+phase="$2"
+
+if [ "$phase" != "post-start" ]; then
+    exit 0
+fi
+
+marker="/var/lib/lxc/$vmid.webhardmon-provisioned"
+if [ -f "$marker" ]; then
+    exit 0
+fi
+
+pct exec "$vmid" -- bash -se <<'EOS'
+set -eu
+export DEBIAN_FRONTEND=noninteractive
+
+# Espera red (la subred privada egresa por la NIC secundaria en vmbr1).
+for i in $(seq 1 30); do
+    if getent hosts archive.ubuntu.com >/dev/null 2>&1; then break; fi
+    sleep 2
+done
+
+apt-get update -y
+apt-get install -y openssh-server sudo python3 ca-certificates
+
+if ! id ubuntu >/dev/null 2>&1; then
+    useradd -m -s /bin/bash -G sudo ubuntu
+    echo 'ubuntu ALL=(ALL) NOPASSWD:ALL' >/etc/sudoers.d/90-ubuntu
+fi
+install -d -m 700 -o ubuntu -g ubuntu /home/ubuntu/.ssh
+cat >/home/ubuntu/.ssh/authorized_keys <<'KEY'
+${ssh_pubkey}
+KEY
+chown ubuntu:ubuntu /home/ubuntu/.ssh/authorized_keys
+chmod 600 /home/ubuntu/.ssh/authorized_keys
+
+# Hardening SSH basico (resto -> Ansible)
+cat >/etc/ssh/sshd_config.d/10-webhardmon.conf <<'SSH'
+PermitRootLogin no
+PasswordAuthentication no
+KbdInteractiveAuthentication no
+SSH
+systemctl enable --now ssh 2>/dev/null || systemctl enable --now sshd
+EOS
+
+touch "$marker"

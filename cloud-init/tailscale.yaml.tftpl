@@ -1,0 +1,47 @@
+#cloud-config
+# Cloud-init para VMs GCP (Ubuntu 24.04).
+# Instala tailscale, hardening basico de SSH, y se une al tailnet con tag.
+hostname: ${hostname}
+manage_etc_hosts: true
+
+users:
+  - name: ubuntu
+    groups: [sudo]
+    sudo: ALL=(ALL) NOPASSWD:ALL
+    shell: /bin/bash
+    ssh_authorized_keys:
+      - ${ssh_pubkey}
+
+package_update: true
+package_upgrade: false
+packages:
+  - curl
+  - ca-certificates
+  - gnupg
+
+write_files:
+  - path: /etc/ssh/sshd_config.d/10-webhardmon.conf
+    permissions: '0644'
+    content: |
+      PermitRootLogin no
+      PasswordAuthentication no
+      KbdInteractiveAuthentication no
+      ChallengeResponseAuthentication no
+      # Hardening completo (fail2ban, banner, etc) -> Ansible
+  - path: /etc/sysctl.d/99-tailscale.conf
+    permissions: '0644'
+    content: |
+      net.ipv4.ip_forward = 1
+      net.ipv6.conf.all.forwarding = 1
+
+runcmd:
+  - systemctl reload ssh || systemctl reload sshd
+  - sysctl --system
+  - curl -fsSL https://tailscale.com/install.sh | sh
+  - |
+    tailscale up \
+      --authkey='${tailscale_authkey}' \
+      --hostname='${hostname}' \
+      --advertise-tags='tag:${project_name},tag:${cloud_tag},tag:${role_tag}' \
+      --ssh \
+      --accept-routes

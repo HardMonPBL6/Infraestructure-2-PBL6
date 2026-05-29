@@ -1,0 +1,33 @@
+# OpenTofu / Terraform
+.terraform/
+.terraform.lock.hcl
+*.tfstate
+*.tfstate.*
+*.tfplan
+crash.log
+crash.*.log
+
+# Secretos / overrides
+terraform.tfvars
+*.auto.tfvars
+override.tf
+override.tf.json
+*_override.tf
+*_override.tf.json
+
+# Credenciales
+*.pem
+*.key
+*-credentials.json
+gcp-*.json
+
+# Inventario generado
+ansible/inventory.ini
+ansible/inventory.yml
+
+# Claude Code (configuracion local)
+.claude/
+
+# Sistema
+.DS_Store
+Thumbs.db
