@@ -1,0 +1,17 @@
+---
+# group_vars/zookeeper.yml — ensemble de 3 (uno por nodo gcp-a).
+
+zookeeper_image: "{{ container_registry }}/zookeeper:{{ image_tag }}"
+zookeeper_heap_mb: 512
+zookeeper_client_port: 2181
+
+# myid determinista por posición en el grupo (1..N). Estable entre rebuilds.
+zookeeper_myid: "{{ groups['zookeeper'].index(inventory_hostname) + 1 }}"
+
+# server.N=host:2888:3888 — lista del ensemble completo.
+zookeeper_servers: >-
+  {{ zookeeper_ensemble
+     | zip(range(1, zookeeper_ensemble | length + 1))
+     | map('reverse') | list }}
+# Render en plantilla:
+#   {% for id, host in zookeeper_servers %}server.{{id}}={{host}}:2888:3888{% endfor %}

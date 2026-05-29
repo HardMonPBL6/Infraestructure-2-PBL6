@@ -1,0 +1,20 @@
+---
+# group_vars/kafka.yml — 3 brokers (uno por nodo gcp-a), co-alojados con ZK.
+
+kafka_image: "{{ container_registry }}/kafka:{{ image_tag }}"
+kafka_heap_mb: 2048
+kafka_port: 9092
+
+# broker.id determinista (0..N-1) por posición → mismo id tras preempción.
+kafka_broker_id: "{{ groups['kafka'].index(inventory_hostname) }}"
+
+# zookeeper.connect = ensemble local (mismas VMs).
+kafka_zookeeper_connect: "{{ zookeeper_ensemble | map('regex_replace', '$', ':2181') | join(',') }}"
+
+# Particionado (requisito N2): >1 partición por topic, RF=3 sobre los 3 brokers.
+kafka_default_partitions: 3
+kafka_default_replication_factor: 3
+kafka_min_insync_replicas: 2
+
+# Listener anunciado = hostname Tailscale del propio nodo.
+kafka_advertised_listener: "PLAINTEXT://{{ inventory_hostname }}:{{ kafka_port }}"

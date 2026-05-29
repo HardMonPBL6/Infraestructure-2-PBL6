@@ -1,0 +1,11 @@
+---
+# group_vars/elasticsearch.yml — singleton (gcp-b node-03, comparte con HBase RS).
+
+elasticsearch_image: "{{ container_registry }}/elasticsearch:{{ image_tag }}"
+elasticsearch_heap_mb: 3072            # topado: convive con hbase_regionserver_heap
+elasticsearch_http_port: 9200
+elasticsearch_transport_port: 9300
+
+# Nodo único → modo single-node (sin descubrimiento de cluster).
+elasticsearch_discovery_type: "single-node"
+elasticsearch_network_host: "{{ inventory_hostname }}"

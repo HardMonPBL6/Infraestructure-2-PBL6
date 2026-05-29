@@ -32,6 +32,11 @@ variable "spot" {
   type    = bool
   default = false
 }
+variable "spot_termination_action" {
+  description = "Accion al interrumpir la VM spot: DELETE (borra VM + disco) o STOP (conserva disco)."
+  type        = string
+  default     = "DELETE"
+}
 
 resource "google_compute_instance" "this" {
   name         = var.name
@@ -77,7 +82,7 @@ resource "google_compute_instance" "this" {
       preemptible                 = true
       automatic_restart           = false
       on_host_maintenance         = "TERMINATE"
-      instance_termination_action = "STOP"
+      instance_termination_action = var.spot_termination_action
     }
   }
 

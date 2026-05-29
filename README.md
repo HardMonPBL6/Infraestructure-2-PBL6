@@ -5,8 +5,10 @@ Provisiona la infraestructura de WebHardMon repartida en **tres nubes** unidas p
 | Nube | Plataforma | Subred pública (vmbr1 / public) | Subred privada (vmbr2 / private) |
 |---|---|---|---|
 | `local` | Proxmox VE (LXC) | `nifi`, `harbor` | `hdfs ×3`, `mapreduce` |
-| `gcp-a` | GCE (`europe-southwest1`) | `kafka ×3` | `zookeeper ×3`, `java ×2`, `cassandra ×3` |
-| `gcp-b` | GCE (`europe-west1`)     | `mysql`, `grafana` | `hbase ×3`, `elasticsearch` |
+| `gcp-a` | GCE (`europe-southwest1`) | `node-01`: kafka+zookeeper+cassandra | `node-02`/`node-03`: kafka+zookeeper+cassandra+java |
+| `gcp-b` | GCE (`europe-west1`)     | `node-01`: hbase+grafana | `node-02`: hbase+mysql · `node-03`: hbase+elasticsearch |
+
+> **Coste GCP — 3 VMs spot compartidas por nube.** En vez de una VM por nodo de cluster (17 VMs on-demand), cada nube GCP usa **3 `e2-standard-4` Spot** (`gcp_spot=true`, `DELETE` al interrumpirse) que co-alojan servicios como contenedores, manteniendo una instancia de cada servicio por VM (clusters de 3 nodos sobre 3 hosts). Reparto en `var.gcp_a_nodes` / `var.gcp_b_nodes`. Spot+DELETE borra el disco al ser interrumpida → los despliegues Ansible deben ser idempotentes. La nube local no cambia.
 
 Conexión entre nubes: tailnet WireGuard gestionado (`tailscale/tailscale` provider). SSH **solo** por tailnet, ACLs por tag.
 
@@ -14,7 +16,9 @@ Conexión entre nubes: tailnet WireGuard gestionado (`tailscale/tailscale` provi
 - **GCP-A / GCP-B**: cada VM se une **directamente** al tailnet via cloud-init. Mesh entre VMs → conexiones UDP directas, sin SPOF, ACL granular por tag.
 - **local**: los CTs **no** ejecutan Tailscale. El portátil del operador actúa como **subnet router** anunciando `10.10.2.0/24` y `10.10.3.0/24` al tailnet, así que los CTs son alcanzables desde cualquier nodo del tailnet con su IP LAN sin instalar nada dentro. Tiene sentido aquí porque el portátil ya está apagado cuando no se trabaja con la nube local; aplicar el mismo patrón en GCP sería SPOF + cuello de botella crypto + ACL pobre.
 
-**Frontera**: este repo es solo infra (redes, VMs/CTs, registros, identidades, alta en Tailscale). La instalación y configuración de Kafka, HDFS, NiFi, etc. la hace Ansible — se genera el inventario al final.
+**Ingesta externa — Cloudflare Tunnel:** el *collector* corre en **PCs de usuario fuera de las tres nubes**, así que no llega por el tailnet (no es miembro) ni por la LAN (detrás de NAT doméstico). `cloudflared` corre en el CT de NiFi y marca **saliente** al edge de Cloudflare, publicando `ingest.<zona>` sin abrir puertos; **Cloudflare Access** (service token) autentica a los collectors. Tailscale no cambia: sigue siendo la malla entre nubes + SSH admin. Se desactiva con `cloudflare_enabled = false`.
+
+**Frontera**: este repo es solo infra (redes, VMs/CTs, registros, identidades, alta en Tailscale, plano de control del túnel Cloudflare). La instalación y configuración de Kafka, HDFS, NiFi, `cloudflared`, etc. la hace Ansible — se genera el inventario al final.
 
 ## Estructura
 
@@ -30,7 +34,8 @@ Conexión entre nubes: tailnet WireGuard gestionado (`tailscale/tailscale` provi
 │   ├── proxmox-lxc/       # CT unprivileged + nesting + tun passthrough
 │   ├── gcp-network/       # VPC + 2 subnets + Cloud NAT + firewall
 │   ├── gcp-vm/            # GCE Ubuntu 24.04 + cloud-init
-│   └── gcp-registry/      # Artifact Registry (Docker)
+│   ├── gcp-registry/      # Artifact Registry (Docker)
+│   └── cloudflare-tunnel/ # Tunnel + DNS + Access para ingesta externa
 ├── ansible/
 │   ├── inventory.tmpl     # plantilla del inventario
 │   └── inventory.ini      # GENERADO por TF (gitignored)
@@ -91,7 +96,23 @@ sudo tailscale up --advertise-routes=10.10.2.0/24,10.10.3.0/24 --accept-routes
 ```
 Y en el admin de Tailscale aprueba las rutas anunciadas. A partir de ahí cualquier nodo del tailnet alcanza los CTs por su IP LAN.
 
-### 4) Backend GCS (opcional)
+### 4) Cloudflare — túnel de ingesta externa
+1. Ten un dominio cuyas NS apunten a Cloudflare (zona activa).
+2. Crea un **API token** (My Profile → API Tokens → Create Token, custom):
+   - `Account` → `Cloudflare Tunnel`: Edit
+   - `Account` → `Access: Apps and Policies`: Edit
+   - `Zone` → `DNS`: Edit (sobre la zona del dominio)
+3. Anota `Account ID` y `Zone ID` (panel de la zona, columna derecha).
+
+Rellena `cloudflare_*` en `terraform.tfvars`. Tras `tofu apply`:
+```powershell
+tofu output -raw cloudflared_tunnel_token        # -> Ansible lo pasa a cloudflared
+tofu output -raw collector_access_client_id       # -> instalador del collector
+tofu output -raw collector_access_client_secret
+```
+Para omitirlo por completo: `cloudflare_enabled = false`.
+
+### 5) Backend GCS (opcional)
 Solo si quieres state remoto:
 ```bash
 gsutil mb -p webhardmon-a-XXXXX -l EU gs://webhardmon-tofu-state
@@ -140,7 +161,9 @@ Obligatorias (sin default):
 | `tailscale_oauth_client_id` | OAuth client del paso 3 |
 | `tailscale_oauth_client_secret` | OAuth secret del paso 3 |
 
-Opcionales con default razonable: regiones/zonas GCP, CIDRs, plantilla LXC, `proxmox_nodes`, tamaños por defecto de CT/VM, topología (`var.topology`).
+Requeridas **si** `cloudflare_enabled = true` (default): `cloudflare_api_token`, `cloudflare_account_id`, `cloudflare_zone_id`, `cloudflare_zone_name` (paso 4).
+
+Opcionales con default razonable: regiones/zonas GCP, CIDRs, plantilla LXC, `proxmox_nodes`, tamaños por defecto de CT/VM, topología local (`var.topology`), reparto y coste de los nodos GCP (`var.gcp_a_nodes`, `var.gcp_b_nodes`, `var.gcp_spot`, `var.gcp_spot_termination_action`, `var.gcp_default_machine_type`, `var.gcp_node_disk_gb`).
 
 ## Lo que NO hace este repo
 

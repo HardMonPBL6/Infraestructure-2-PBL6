@@ -18,6 +18,10 @@ terraform {
       source  = "tailscale/tailscale"
       version = "~> 0.17"
     }
+    cloudflare = {
+      source  = "cloudflare/cloudflare"
+      version = "~> 4.52"
+    }
     local = {
       source  = "hashicorp/local"
       version = "~> 2.5"

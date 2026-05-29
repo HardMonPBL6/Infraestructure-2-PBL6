@@ -1,0 +1,14 @@
+---
+# group_vars/java.yml — cluster Java/RMI StressScore (2 nodos: gcp-a node-02/03).
+
+javaapp_image: "{{ container_registry }}/stressscore:{{ image_tag }}"
+javaapp_heap_mb: 1536
+javaapp_rmi_registry_port: 1099
+javaapp_rmi_object_port: 1100
+
+# Consume de Kafka local y escribe enriquecido en Cassandra (mismas VMs).
+javaapp_kafka_bootstrap: "{{ kafka_brokers | map('regex_replace', '$', ':9092') | join(',') }}"
+javaapp_cassandra_contact_points: "{{ cassandra_nodes | join(',') }}"
+
+# hostname RMI anunciado = Tailscale (evita que RMI anuncie una IP privada).
+javaapp_rmi_server_hostname: "{{ inventory_hostname }}"

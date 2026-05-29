@@ -19,11 +19,37 @@ gcp_b_project_id       = "webhardmon-b-XXXXX"
 gcp_b_credentials_file = "C:/Users/sebastian/.gcp/webhardmon-b.json"
 
 # ---- GCP opciones de coste --------------------------------------------------
-# Descomenta para Spot VMs (~70 % mas barato; pueden interrumpirse con 30 s de aviso).
-# Ideal para entornos de prueba / proyectos de clase.
-# gcp_spot = true
+# Por defecto: 3 VMs spot e2-standard-4 por nube, DELETE al ser interrumpidas.
+# Cada VM co-aloja varios servicios (contenedores). Override si hace falta:
+# gcp_spot                    = true            # spot ON por defecto
+# gcp_spot_termination_action = "DELETE"        # "STOP" conserva el disco
+# gcp_default_machine_type    = "e2-standard-4"
+# gcp_node_disk_gb            = 30
+#
+# Reparto de servicios por nodo (override solo si quieres otra distribucion):
+# gcp_a_nodes = [
+#   { roles = ["kafka", "zookeeper", "cassandra"],         public = true  },
+#   { roles = ["kafka", "zookeeper", "cassandra", "java"], public = false },
+#   { roles = ["kafka", "zookeeper", "cassandra", "java"], public = false },
+# ]
+# gcp_b_nodes = [
+#   { roles = ["hbase", "grafana"],       public = true  },
+#   { roles = ["hbase", "mysql"],         public = false },
+#   { roles = ["hbase", "elasticsearch"], public = false },
+# ]
 
 # ---- Tailscale --------------------------------------------------------------
 tailscale_tailnet             = "-"   # "-" usa el tailnet por defecto del OAuth client
 tailscale_oauth_client_id     = "k123abc..."
 tailscale_oauth_client_secret = "tskey-client-..."
+
+# ---- Cloudflare Tunnel (ingesta externa de los collectors) ------------------
+# Publica el endpoint de ingesta de NiFi en ingest.<zona> sin abrir NAT/VPN.
+# Pon cloudflare_enabled = false para desactivarlo (no se crea ningun recurso CF).
+cloudflare_enabled          = true
+cloudflare_api_token        = "cf-api-token-..."          # Account: Tunnel:Edit + Access:Edit; Zone: DNS:Edit
+cloudflare_account_id       = "0123456789abcdef0123456789abcdef"
+cloudflare_zone_id          = "abcdef0123456789abcdef0123456789"
+cloudflare_zone_name        = "example.com"
+# cloudflare_ingest_subdomain = "ingest"                  # -> ingest.example.com
+# nifi_ingest_port            = 8081                       # listener HTTP de NiFi

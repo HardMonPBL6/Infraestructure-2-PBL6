@@ -209,42 +209,107 @@ variable "tailscale_oauth_client_secret" {
 }
 
 # -----------------------------------------------------------------------------
+# Cloudflare Tunnel (ingesta externa)
+# -----------------------------------------------------------------------------
+# El collector corre en PCs de usuario fuera de las tres nubes. Cloudflare Tunnel
+# publica el endpoint de ingesta de NiFi (en el CT local) sin abrir NAT ni VPN en
+# el cliente; Cloudflare Access lo protege con un service token.
+
+variable "cloudflare_enabled" {
+  description = "Crear el tunel Cloudflare para la ingesta externa hacia NiFi."
+  type        = bool
+  default     = true
+}
+
+variable "cloudflare_api_token" {
+  description = "API token Cloudflare (Account: Tunnel:Edit + Access:Edit; Zone: DNS:Edit). Requerido si cloudflare_enabled."
+  type        = string
+  sensitive   = true
+  default     = ""
+}
+
+variable "cloudflare_account_id" {
+  description = "Account ID de Cloudflare."
+  type        = string
+  default     = ""
+}
+
+variable "cloudflare_zone_id" {
+  description = "Zone ID del dominio donde se crea el registro de ingesta."
+  type        = string
+  default     = ""
+}
+
+variable "cloudflare_zone_name" {
+  description = "Dominio gestionado en Cloudflare (p.ej. example.com)."
+  type        = string
+  default     = ""
+}
+
+variable "cloudflare_ingest_subdomain" {
+  description = "Subdominio del endpoint de ingesta -> <subdominio>.<zona>."
+  type        = string
+  default     = "ingest"
+}
+
+variable "nifi_ingest_port" {
+  description = "Puerto del listener HTTP de ingesta de NiFi dentro del CT (destino del tunel)."
+  type        = number
+  default     = 8081
+}
+
+# -----------------------------------------------------------------------------
 # Topologia (numero de nodos por rol; parametrizable por rubrica)
 # -----------------------------------------------------------------------------
 
 variable "topology" {
-  description = "Numero de nodos por componente. Editable sin tocar codigo."
+  description = "Numero de nodos por componente de la nube LOCAL (Proxmox). Los servicios GCP ya NO se cuentan aqui: se co-localizan en nodos compartidos spot (ver var.gcp_a_nodes / var.gcp_b_nodes)."
   type = object({
-    # local
     nifi      = number
     hdfs      = number # NameNode + DataNodes contados juntos
     mapreduce = number
     harbor    = number
-    # gcp-a
-    kafka     = number
-    zookeeper = number
-    java_rmi  = number
-    cassandra = number
-    # gcp-b
-    mysql         = number
-    hbase         = number
-    elasticsearch = number
-    grafana       = number
   })
   default = {
-    nifi          = 1
-    hdfs          = 3
-    mapreduce     = 1
-    harbor        = 1
-    kafka         = 3
-    zookeeper     = 3
-    java_rmi      = 2
-    cassandra     = 3
-    mysql         = 1
-    hbase         = 3
-    elasticsearch = 1
-    grafana       = 1
+    nifi      = 1
+    hdfs      = 3
+    mapreduce = 1
+    harbor    = 1
   }
+}
+
+# -----------------------------------------------------------------------------
+# Nodos compartidos GCP (consolidacion de coste)
+# -----------------------------------------------------------------------------
+# En vez de una VM por nodo de cluster (17 VMs on-demand), cada nube GCP usa
+# 3 VMs spot e2-standard-4 que co-alojan varios servicios como contenedores.
+# Se mantienen los clusters distribuidos de 3 nodos repartiendo UNA instancia de
+# cada servicio por VM (defendible frente a RGI320: siguen siendo 3 hosts).
+
+variable "gcp_a_nodes" {
+  description = "Nodos compartidos de GCP-A (streaming). 'public' = NIC en subred publica con IP externa efimera (borde / travesia NAT Tailscale); false = subred privada, egress por Cloud NAT."
+  type = list(object({
+    roles  = list(string)
+    public = bool
+  }))
+  default = [
+    { roles = ["kafka", "zookeeper", "cassandra"], public = true },
+    { roles = ["kafka", "zookeeper", "cassandra", "java"], public = false },
+    { roles = ["kafka", "zookeeper", "cassandra", "java"], public = false },
+  ]
+}
+
+variable "gcp_b_nodes" {
+  description = "Nodos compartidos de GCP-B (analitica + servicio). Mismo criterio publico/privado que gcp_a_nodes."
+  type = list(object({
+    roles  = list(string)
+    public = bool
+  }))
+  default = [
+    { roles = ["hbase", "grafana"], public = true },
+    { roles = ["hbase", "mysql"], public = false },
+    { roles = ["hbase", "elasticsearch"], public = false },
+  ]
 }
 
 variable "lxc_default_resources" {
@@ -264,13 +329,29 @@ variable "lxc_default_resources" {
 }
 
 variable "gcp_default_machine_type" {
-  description = "Tipo de máquina por defecto para instancias GCP."
+  description = "Tipo de máquina de los nodos compartidos GCP. e2-standard-4 (4 vCPU / 16 GB) da holgura para co-alojar varios JVM por nodo."
   type        = string
-  default     = "e2-standard-2"
+  default     = "e2-standard-4"
+}
+
+variable "gcp_node_disk_gb" {
+  description = "Disco de arranque (GB) de cada nodo compartido GCP. Mayor que una VM single-role porque co-aloja varios servicios y sus datos."
+  type        = number
+  default     = 30
 }
 
 variable "gcp_spot" {
-  description = "Usar Spot VMs en GCP (~70 % mas barato; pueden ser interrumpidas con 30 s de aviso)."
+  description = "Usar Spot VMs en GCP (~70 % mas barato; pueden ser interrumpidas con 30 s de aviso). Por defecto activado para abaratar el proyecto de clase."
   type        = bool
-  default     = false
+  default     = true
+}
+
+variable "gcp_spot_termination_action" {
+  description = "Que hacer al interrumpir una VM spot: DELETE (borra VM + disco, mas barato, sin estado persistente) o STOP (conserva el disco para reinicio rapido)."
+  type        = string
+  default     = "DELETE"
+  validation {
+    condition     = contains(["DELETE", "STOP"], var.gcp_spot_termination_action)
+    error_message = "gcp_spot_termination_action debe ser DELETE o STOP."
+  }
 }

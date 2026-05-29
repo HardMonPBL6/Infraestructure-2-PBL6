@@ -1,0 +1,33 @@
+---
+# group_vars/nifi.yml — NiFi (nube local) + cloudflared para ingesta externa.
+#
+# El collector corre en PCs de usuario, fuera de las tres nubes. Entra por un
+# tunel Cloudflare que termina AQUI (en el CT de NiFi): cloudflared marca
+# saliente al edge de Cloudflare y enruta ingest.<zona> -> localhost:nifi.
+# OpenTofu crea el tunel y exporta el token; Ansible solo instala el demonio.
+
+nifi_image: "{{ container_registry_local | default('harbor.local') }}/nifi:{{ image_tag }}"
+nifi_ui_port: 8080
+nifi_ingest_port: 8081          # ListenHTTP/HandleHttpRequest — destino del tunel
+
+# --- cloudflared (Cloudflare Tunnel) ----------------------------------------
+cloudflared_enabled: true
+cloudflared_image: "cloudflare/cloudflared:latest"
+
+# Token del conector. NO ponerlo en claro: viene de `tofu output -raw
+# cloudflared_tunnel_token`. Inyectar por ansible-vault o variable de entorno
+# (p.ej. exportar TF_CLOUDFLARED_TOKEN y pasarlo con -e). Placeholder:
+cloudflared_tunnel_token: "{{ vault_cloudflared_tunnel_token | default('') }}"
+
+# El demonio se ejecuta así (rol/handler de Ansible):
+#   docker run -d --name cloudflared --restart unless-stopped --network host \
+#     {{ cloudflared_image }} tunnel --no-autoupdate run \
+#     --token {{ cloudflared_tunnel_token }}
+# Con --network host alcanza el listener de NiFi en localhost:{{ nifi_ingest_port }}.
+
+# --- Contrato del collector (PCs de usuario, fuera de Ansible) ---------------
+# Los collectors hacen POST a https://ingest.<zona>/<ruta> con las cabeceras del
+# service token de Cloudflare Access (salen de `tofu output`):
+#   CF-Access-Client-Id:     <collector_access_client_id>
+#   CF-Access-Client-Secret: <collector_access_client_secret>
+# Estas credenciales se distribuyen con el instalador del collector, no aquí.

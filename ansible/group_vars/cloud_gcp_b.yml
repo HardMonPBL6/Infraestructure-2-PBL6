@@ -1,0 +1,11 @@
+---
+# group_vars/cloud_gcp_b.yml — analítica + servicio (HBase + MySQL + ES + Grafana).
+
+gcp_b_project_id: "webhardmon-b-XXXXX"
+gcp_b_location: "europe-west1"
+
+docker_registry_host: "{{ gcp_b_location }}-docker.pkg.dev"
+container_registry: "{{ docker_registry_host }}/{{ gcp_b_project_id }}/{{ project_name }}-b-docker"
+
+node_is_spot: true
+node_ephemeral_data: true

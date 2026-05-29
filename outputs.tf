@@ -6,30 +6,33 @@
 # via Tailscale). Hosts GCP -> hostname Tailscale (MagicDNS).
 
 locals {
+  # Cada host lleva una LISTA de roles. Los CTs locales tienen un unico rol;
+  # los nodos GCP compartidos alojan varios servicios -> aparecen en varios
+  # grupos [rol] del inventario para que Ansible despliegue cada contenedor.
   all_hosts = concat(
     [for k, v in local.local_cts : {
       name         = v.hostname
       ansible_host = v.ip
-      role         = v.role
+      roles        = [v.role]
       cloud        = "local"
     }],
     [for k, v in local.gcp_a_vms : {
       name         = v.hostname
       ansible_host = "" # MagicDNS resuelve el hostname
-      role         = v.role
+      roles        = v.roles
       cloud        = "gcp-a"
     }],
     [for k, v in local.gcp_b_vms : {
       name         = v.hostname
       ansible_host = ""
-      role         = v.role
+      roles        = v.roles
       cloud        = "gcp-b"
     }],
   )
 
   groups_by_role = {
-    for role in distinct([for h in local.all_hosts : h.role]) :
-    role => [for h in local.all_hosts : { name = h.name, ansible_host = h.ansible_host } if h.role == role]
+    for role in distinct(flatten([for h in local.all_hosts : h.roles])) :
+    role => [for h in local.all_hosts : { name = h.name, ansible_host = h.ansible_host } if contains(h.roles, role)]
   }
 
   groups_by_cloud = {
@@ -75,4 +78,29 @@ output "ansible_inventory_path" {
 
 output "tailscale_acl_id" {
   value = module.tailscale.acl_applied
+}
+
+# ---- Cloudflare Tunnel (ingesta externa) -----------------------------------
+
+output "ingest_hostname" {
+  description = "Hostname publico de ingesta para los collectors."
+  value       = var.cloudflare_enabled ? module.cloudflare_tunnel[0].ingest_hostname : null
+}
+
+output "cloudflared_tunnel_token" {
+  description = "Token para `cloudflared` en el CT de NiFi (lo consume Ansible)."
+  value       = var.cloudflare_enabled ? module.cloudflare_tunnel[0].tunnel_token : null
+  sensitive   = true
+}
+
+output "collector_access_client_id" {
+  description = "Client ID del service token Cloudflare Access para los collectors."
+  value       = var.cloudflare_enabled ? module.cloudflare_tunnel[0].access_client_id : null
+  sensitive   = true
+}
+
+output "collector_access_client_secret" {
+  description = "Client secret del service token (solo visible tras apply)."
+  value       = var.cloudflare_enabled ? module.cloudflare_tunnel[0].access_client_secret : null
+  sensitive   = true
 }

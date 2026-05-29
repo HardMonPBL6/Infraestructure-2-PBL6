@@ -1,0 +1,15 @@
+---
+# group_vars/cloud_gcp_a.yml — streaming (Kafka + ZooKeeper + Cassandra + Java).
+# Rellena project_id con el real (o genera este fichero desde `tofu output`).
+
+gcp_a_project_id: "webhardmon-a-XXXXX"
+gcp_a_location: "europe-southwest1"
+
+# Artifact Registry de GCP-A (formato del módulo gcp-registry):
+#   {location}-docker.pkg.dev/{project_id}/{name_prefix}-docker
+docker_registry_host: "{{ gcp_a_location }}-docker.pkg.dev"
+container_registry: "{{ docker_registry_host }}/{{ gcp_a_project_id }}/{{ project_name }}-a-docker"
+
+# Nodos spot con DELETE → tratar como ganado, no mascotas.
+node_is_spot: true
+node_ephemeral_data: true

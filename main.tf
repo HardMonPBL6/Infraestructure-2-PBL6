@@ -117,6 +117,22 @@ module "local_ct" {
   tags = [var.project_name, local.local_cloud_tag, each.value.role]
 }
 
+# ---- Cloudflare Tunnel: ingesta externa hacia NiFi --------------------------
+# El collector (en PCs de usuario, fuera del tailnet y detras de NAT) entra por
+# aqui. cloudflared corre en el CT de NiFi con el token que exporta el modulo.
+
+module "cloudflare_tunnel" {
+  source    = "./modules/cloudflare-tunnel"
+  providers = { cloudflare = cloudflare }
+  count     = var.cloudflare_enabled ? 1 : 0
+
+  account_id       = var.cloudflare_account_id
+  zone_id          = var.cloudflare_zone_id
+  zone_name        = var.cloudflare_zone_name
+  subdomain        = var.cloudflare_ingest_subdomain
+  nifi_ingest_port = var.nifi_ingest_port
+}
+
 # =============================================================================
 # 3. GCP-A — streaming (Kafka + Java/RMI + Cassandra)
 # =============================================================================
@@ -137,26 +153,26 @@ resource "google_service_account" "gcp_a" {
 }
 
 module "gcp_a_registry" {
-  source      = "./modules/gcp-registry"
-  providers   = { google = google.gcp_a }
-  name_prefix = "${var.project_name}-a"
-  location    = var.gcp_a_region
-  project_id  = var.gcp_a_project_id
+  source         = "./modules/gcp-registry"
+  providers      = { google = google.gcp_a }
+  name_prefix    = "${var.project_name}-a"
+  location       = var.gcp_a_region
+  project_id     = var.gcp_a_project_id
+  reader_members = ["serviceAccount:${google_service_account.gcp_a.email}"]
 }
 
 locals {
   gcp_a_cloud_tag = "gcp_a"
-  gcp_a_specs = concat(
-    [for i in range(var.topology.kafka) : { role = "kafka", idx = i + 1, public = true }],
-    [for i in range(var.topology.zookeeper) : { role = "zookeeper", idx = i + 1, public = false }],
-    [for i in range(var.topology.java_rmi) : { role = "java", idx = i + 1, public = false }],
-    [for i in range(var.topology.cassandra) : { role = "cassandra", idx = i + 1, public = false }],
-  )
+  # 3 nodos compartidos: cada VM aloja una instancia de cada servicio de su lista
+  # de roles (Kafka+ZK+Cassandra en los 3, Java en 2) -> cluster distribuido de
+  # 3 nodos sobre 3 VMs spot en vez de 11 VMs on-demand.
   gcp_a_vms = {
-    for s in local.gcp_a_specs :
-    format("%s-%02d", s.role, s.idx) => merge(s, {
-      hostname = format("%s-%s-%02d", var.project_name, s.role, s.idx)
-    })
+    for i, n in var.gcp_a_nodes :
+    format("node-%02d", i + 1) => {
+      hostname = format("%s-a-node-%02d", var.project_name, i + 1)
+      roles    = n.roles
+      public   = n.public
+    }
   }
 }
 
@@ -165,23 +181,25 @@ module "gcp_a_vm" {
   providers = { google = google.gcp_a }
   for_each  = local.gcp_a_vms
 
-  name            = each.value.hostname
-  zone            = var.gcp_a_zone
-  machine_type    = var.gcp_default_machine_type
-  spot            = var.gcp_spot
-  subnet_id       = each.value.public ? module.gcp_a_network.public_subnet_id : module.gcp_a_network.private_subnet_id
-  public          = each.value.public
-  service_account = google_service_account.gcp_a.email
+  name                    = each.value.hostname
+  zone                    = var.gcp_a_zone
+  machine_type            = var.gcp_default_machine_type
+  spot                    = var.gcp_spot
+  spot_termination_action = var.gcp_spot_termination_action
+  disk_gb                 = var.gcp_node_disk_gb
+  subnet_id               = each.value.public ? module.gcp_a_network.public_subnet_id : module.gcp_a_network.private_subnet_id
+  public                  = each.value.public
+  service_account         = google_service_account.gcp_a.email
   labels = {
     project = var.project_name
     cloud   = "gcp-a"
-    role    = each.value.role
+    roles   = join("-", each.value.roles)
   }
   user_data = templatefile("${path.module}/cloud-init/tailscale.yaml.tftpl", {
     project_name      = var.project_name
     hostname          = each.value.hostname
     cloud_tag         = local.gcp_a_cloud_tag
-    role_tag          = each.value.role
+    role_tags         = join(",", [for r in each.value.roles : "tag:${r}"])
     tailscale_authkey = module.tailscale.auth_keys["gcp-a"]
     ssh_pubkey        = var.local_ct_ssh_pubkey
   })
@@ -207,26 +225,25 @@ resource "google_service_account" "gcp_b" {
 }
 
 module "gcp_b_registry" {
-  source      = "./modules/gcp-registry"
-  providers   = { google = google.gcp_b }
-  name_prefix = "${var.project_name}-b"
-  location    = var.gcp_b_region
-  project_id  = var.gcp_b_project_id
+  source         = "./modules/gcp-registry"
+  providers      = { google = google.gcp_b }
+  name_prefix    = "${var.project_name}-b"
+  location       = var.gcp_b_region
+  project_id     = var.gcp_b_project_id
+  reader_members = ["serviceAccount:${google_service_account.gcp_b.email}"]
 }
 
 locals {
   gcp_b_cloud_tag = "gcp_b"
-  gcp_b_specs = concat(
-    [for i in range(var.topology.mysql) : { role = "mysql", idx = i + 1, public = true }],
-    [for i in range(var.topology.hbase) : { role = "hbase", idx = i + 1, public = false }],
-    [for i in range(var.topology.elasticsearch) : { role = "elasticsearch", idx = i + 1, public = false }],
-    [for i in range(var.topology.grafana) : { role = "grafana", idx = i + 1, public = true }],
-  )
+  # 3 nodos compartidos: HBase en los 3 (regionservers distribuidos) +
+  # MySQL / Elasticsearch / Grafana repartidos uno por VM.
   gcp_b_vms = {
-    for s in local.gcp_b_specs :
-    format("%s-%02d", s.role, s.idx) => merge(s, {
-      hostname = format("%s-%s-%02d", var.project_name, s.role, s.idx)
-    })
+    for i, n in var.gcp_b_nodes :
+    format("node-%02d", i + 1) => {
+      hostname = format("%s-b-node-%02d", var.project_name, i + 1)
+      roles    = n.roles
+      public   = n.public
+    }
   }
 }
 
@@ -235,23 +252,25 @@ module "gcp_b_vm" {
   providers = { google = google.gcp_b }
   for_each  = local.gcp_b_vms
 
-  name            = each.value.hostname
-  zone            = var.gcp_b_zone
-  machine_type    = var.gcp_default_machine_type
-  spot            = var.gcp_spot
-  subnet_id       = each.value.public ? module.gcp_b_network.public_subnet_id : module.gcp_b_network.private_subnet_id
-  public          = each.value.public
-  service_account = google_service_account.gcp_b.email
+  name                    = each.value.hostname
+  zone                    = var.gcp_b_zone
+  machine_type            = var.gcp_default_machine_type
+  spot                    = var.gcp_spot
+  spot_termination_action = var.gcp_spot_termination_action
+  disk_gb                 = var.gcp_node_disk_gb
+  subnet_id               = each.value.public ? module.gcp_b_network.public_subnet_id : module.gcp_b_network.private_subnet_id
+  public                  = each.value.public
+  service_account         = google_service_account.gcp_b.email
   labels = {
     project = var.project_name
     cloud   = "gcp-b"
-    role    = each.value.role
+    roles   = join("-", each.value.roles)
   }
   user_data = templatefile("${path.module}/cloud-init/tailscale.yaml.tftpl", {
     project_name      = var.project_name
     hostname          = each.value.hostname
     cloud_tag         = local.gcp_b_cloud_tag
-    role_tag          = each.value.role
+    role_tags         = join(",", [for r in each.value.roles : "tag:${r}"])
     tailscale_authkey = module.tailscale.auth_keys["gcp-b"]
     ssh_pubkey        = var.local_ct_ssh_pubkey
   })

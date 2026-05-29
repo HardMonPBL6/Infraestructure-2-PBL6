@@ -42,6 +42,6 @@ runcmd:
     tailscale up \
       --authkey='${tailscale_authkey}' \
       --hostname='${hostname}' \
-      --advertise-tags='tag:${project_name},tag:${cloud_tag},tag:${role_tag}' \
+      --advertise-tags='tag:${project_name},tag:${cloud_tag},${role_tags}' \
       --ssh \
       --accept-routes

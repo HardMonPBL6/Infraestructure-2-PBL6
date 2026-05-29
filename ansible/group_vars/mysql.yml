@@ -1,0 +1,11 @@
+---
+# group_vars/mysql.yml — singleton (gcp-b node-02). Metadatos + star schema.
+
+mysql_image: "{{ container_registry }}/mysql:{{ image_tag }}"
+mysql_port: 3306
+mysql_innodb_buffer_pool_mb: 2048      # cabe junto al RegionServer HBase del nodo
+mysql_database: webhardmon
+mysql_bind_host: "{{ inventory_hostname }}"
+
+# Credenciales: NO en claro. Inyectar por ansible-vault / variable de entorno.
+# mysql_root_password: "{{ vault_mysql_root_password }}"

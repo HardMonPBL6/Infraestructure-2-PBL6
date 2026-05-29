@@ -1,0 +1,19 @@
+---
+# group_vars/hbase.yml — 3 RegionServers (uno por nodo gcp-b).
+# node-01 actúa también de Master; node-03 comparte RAM con Elasticsearch, así
+# que su heap se recorta vía host_vars si hiciera falta.
+
+hbase_image: "{{ container_registry }}/hbase:{{ image_tag }}"
+hbase_regionserver_heap_mb: 3072
+hbase_master_heap_mb: 1024
+
+# El primer nodo del grupo es el HMaster; el resto solo RegionServer.
+hbase_master_host: "{{ hbase_regionservers[0] }}"
+hbase_is_master: "{{ inventory_hostname == hbase_regionservers[0] }}"
+
+# HBase necesita un quorum ZK. gcp-b no tiene ZK dedicado → quorum embebido en
+# los 3 nodos hbase (o apuntar al ensemble de gcp-a vía tailnet si se prefiere).
+hbase_zk_quorum: "{{ hbase_regionservers | join(',') }}"
+
+# Pre-split de regiones (sharding, requisito N2).
+hbase_presplit_regions: 8

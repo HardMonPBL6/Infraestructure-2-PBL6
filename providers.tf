@@ -53,3 +53,9 @@ provider "tailscale" {
   oauth_client_id     = var.tailscale_oauth_client_id
   oauth_client_secret = var.tailscale_oauth_client_secret
 }
+
+# Cloudflare: API token (scopes: Account > Cloudflare Tunnel:Edit + Access:Edit,
+# Zone > DNS:Edit). Solo se usa si var.cloudflare_enabled = true.
+provider "cloudflare" {
+  api_token = var.cloudflare_api_token
+}
