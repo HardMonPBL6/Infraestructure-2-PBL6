@@ -124,6 +124,17 @@ LXC containers get static IPs derived from the Proxmox VMID (`<cidr>.<vmid>`).
 - GCP gateway nodes (node-01): WireGuard VPN IP (`10.0.0.20` / `10.0.0.30`)
 - GCP private nodes (node-02/03): GCP internal IP, reachable via the gateway's WireGuard route
 
+Because GCP nodes are shared, the generated inventory places one node in **multiple** `[role]` groups at once (e.g. gcp-a node-02 is in `[kafka]`, `[zookeeper]`, `[cassandra]`, `[java]`). The template also emits `[cloud_*]` groups and a `[webhardmon:children]` group spanning all roles.
+
+### Ansible group_vars (config layer)
+
+`ansible/group_vars/` holds the service config Ansible merges per host. Because a shared node belongs to several role groups, Ansible **merges** the group_vars of every group it's in. Key conventions (see `ansible/group_vars/README.md`):
+
+- **Everything is namespaced per service** (`kafka_*`, `cassandra_*`, `zookeeper_*`, …) so co-located services never collide on a variable name during the merge.
+- **Fixed RAM budget.** Heaps are capped so the densest node fits in 16 GB (`e2-standard-4`) with headroom for page cache — gcp-a node-02/03 runs Kafka 2 GB + ZooKeeper 512 MB + Cassandra 4 GB + Java/RMI 1.5 GB (~8 GB), gcp-b caps HBase RS 3 GB, Elasticsearch 3 GB, MySQL buffer pool 2 GB. Schema Registry (768 MB) sits on node-01 where there's no Java. Don't raise a heap without re-checking the node's total.
+- **Deterministic identity.** `broker.id`, `myid`, etc. derive from the host's index within its group (`groups['kafka'].index(...)`). The inventory is stable (`node-01/02/03`), so a node deleted by spot preemption rebuilds with the **same** id and rejoins the cluster.
+- Local single-service roles (nifi, hdfs, mapreduce, harbor) carry their own group_vars without these co-location constraints.
+
 ### Provisioning Scripts
 
 - `cloud-init/wireguard.yaml.tftpl` — GCP VM user-data: hostname, `ubuntu` user, SSH hardening, WireGuard install. Gateway nodes get a full `wg0.conf`; private nodes get a systemd one-shot service that adds static routes via their gateway.

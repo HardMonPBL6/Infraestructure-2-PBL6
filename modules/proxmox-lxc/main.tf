@@ -3,11 +3,11 @@
 # Decisiones:
 #  - Unprivileged + nesting=1 (mismo patron que los CTs ya existentes).
 #  - IP estatica determinista por CT (asi el inventario Ansible es estable y
-#    el subnet router del portatil ya enruta esos rangos por Tailscale).
+#    el gateway local ya enruta esos rangos por la malla WireGuard).
 #  - Si in_private_subnet=true, el CT recibe 2 NICs: la privada (vmbr2, sin gw)
 #    y una segunda en vmbr1 con DHCP solo para egress (apt).
-#  - Sin Tailscale dentro del CT: el alta en el tailnet la hace el subnet router
-#    del portatil del operador.
+#  - Sin WireGuard dentro del CT: la conectividad inter-nube la aporta el
+#    gateway local que anuncia las subredes LAN a la malla.
 
 terraform {
   required_providers {

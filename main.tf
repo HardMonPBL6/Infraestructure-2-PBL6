@@ -134,7 +134,7 @@ module "local_ct" {
 }
 
 # ---- Cloudflare Tunnel: ingesta externa hacia NiFi --------------------------
-# El collector (en PCs de usuario, fuera del tailnet y detras de NAT) entra por
+# El collector (en PCs de usuario, fuera de la malla WireGuard y detras de NAT) entra por
 # aqui. cloudflared corre en el CT de NiFi con el token que exporta el modulo.
 
 module "cloudflare_tunnel" {

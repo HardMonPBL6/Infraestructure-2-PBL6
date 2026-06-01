@@ -1,7 +1,7 @@
 # Cloudflare Tunnel para la ingesta externa.
 #
 # El collector corre en PCs de usuario FUERA de las tres nubes. No puede entrar
-# por Tailscale (no son miembros del tailnet) ni por la LAN local (detras de NAT
+# por WireGuard (no son peers de la malla) ni por la LAN local (detras de NAT
 # domestico, sin ingress publico). Este modulo publica el endpoint de ingesta de
 # NiFi en `ingest.<zona>` via un tunel Cloudflare: `cloudflared` corre en el CT
 # de NiFi y marca SALIENTE hacia el edge de Cloudflare (sin abrir puertos ni

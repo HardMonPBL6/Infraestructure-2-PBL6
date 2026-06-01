@@ -5,7 +5,7 @@ grafana_image: "{{ container_registry }}/grafana:{{ image_tag }}"
 grafana_port: 3000
 grafana_root_url: "http://{{ inventory_hostname }}:3000"
 
-# Datasources de las dos ramas: hot (Cassandra vía tailnet a gcp-a) y
+# Datasources de las dos ramas: hot (Cassandra vía WireGuard a gcp-a) y
 # served/BI (MySQL star schema + Elasticsearch del propio gcp-b).
 grafana_datasources:
   - name: cassandra-hot

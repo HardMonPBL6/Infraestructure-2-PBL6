@@ -12,7 +12,7 @@ hbase_master_host: "{{ hbase_regionservers[0] }}"
 hbase_is_master: "{{ inventory_hostname == hbase_regionservers[0] }}"
 
 # HBase necesita un quorum ZK. gcp-b no tiene ZK dedicado → quorum embebido en
-# los 3 nodos hbase (o apuntar al ensemble de gcp-a vía tailnet si se prefiere).
+# los 3 nodos hbase (o apuntar al ensemble de gcp-a vía WireGuard si se prefiere).
 hbase_zk_quorum: "{{ hbase_regionservers | join(',') }}"
 
 # Pre-split de regiones (sharding, requisito N2).

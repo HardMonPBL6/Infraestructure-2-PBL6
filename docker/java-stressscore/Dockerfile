@@ -16,7 +16,7 @@ WORKDIR /app
 # Ajustad al nombre real del artefacto (jar sombreado/uber-jar):
 COPY --from=build /src/target/*-shaded.jar /app/stressscore.jar
 
-# RMI debe anunciar un hostname alcanzable por el resto del tailnet; lo fija el
+# RMI debe anunciar un hostname alcanzable por el resto de la malla WireGuard; lo fija el
 # deploy (javaapp_rmi_server_hostname en group_vars/java.yml).
 ENV JAVA_RMI_HOSTNAME=""
 ENV JAVA_OPTS="-Xmx1536m"

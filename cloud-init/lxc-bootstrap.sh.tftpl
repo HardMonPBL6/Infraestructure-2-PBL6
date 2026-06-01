@@ -1,8 +1,8 @@
 #!/usr/bin/env bash
 # Hookscript Proxmox para CTs WebHardMon.
-# Provisiona usuario ubuntu, SSH, hardening basico. NO instala Tailscale:
+# Provisiona usuario ubuntu, SSH, hardening basico. NO instala WireGuard:
 # el acceso al CT va por la red LAN (10.10.2.0/24 / 10.10.3.0/24) anunciada
-# al tailnet por el subnet router del portatil.
+# a la malla WireGuard por el gateway local.
 set -eu
 
 vmid="$1"
