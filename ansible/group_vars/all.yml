@@ -29,6 +29,23 @@ node_mem_reserved_os_mb: 1536   # SO + dockerd + wg-quick
 container_registry: "localhost"          # placeholder; override por nube
 image_tag: "latest"
 
+# --- Endurecimiento de seguridad (rol security, playbook security.yml) ------
+# El rol trae defaults seguros; aquí van los específicos del despliegue.
+# Puerto SSH: debe coincidir con var.ssh_port de OpenTofu (ansible_port del
+# inventario). Si lo cambias, cámbialo en los dos sitios.
+security_ssh_port: 2222
+# ignoreip de Fail2ban: el nodo de control de Ansible llega a GCP por la malla
+# WireGuard (10.0.0.0/24) y a los CTs locales por la LAN. Se incluyen las /16 de
+# cada nube para que ni el gateway ni el control se autobloqueen. Añade aquí la
+# IP de tu portátil de gestión si conectas a los CTs locales desde otra subred.
+security_fail2ban_ignoreip:
+  - 127.0.0.1/8
+  - ::1
+  - 10.0.0.0/24    # malla WireGuard (nodo de gestión = 10.0.0.1)
+  - 10.10.0.0/16   # nube local (Proxmox)
+  - 10.20.0.0/16   # gcp-a
+  - 10.30.0.0/16   # gcp-b
+
 # --- Helpers de descubrimiento de cluster -----------------------------------
 # IPs WireGuard (gateways) o IPs internas GCP (nodos privados) = ansible_host en el inventario.
 # Estas listas las consumen las plantillas de cada servicio.

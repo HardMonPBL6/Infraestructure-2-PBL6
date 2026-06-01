@@ -1,0 +1,36 @@
+---
+# roles/security/defaults — valores por defecto del endurecimiento.
+# Los específicos del despliegue (puerto, ignoreip con subredes de cada nube)
+# se sobreescriben en group_vars/all.yml. Todo va namespaced `security_*` para
+# no colisionar al fusionar group_vars en los nodos compartidos.
+
+# --- SSH (drop-in en /etc/ssh/sshd_config.d, NO se edita sshd_config) --------
+security_ssh_dropin_path: /etc/ssh/sshd_config.d/20-security.conf
+security_ssh_port: 2222
+security_ssh_permit_root_login: "no"
+security_ssh_password_authentication: "no"
+security_ssh_pubkey_authentication: "yes"
+security_ssh_max_auth_tries: 3
+security_ssh_client_alive_interval: 300
+security_ssh_client_alive_count_max: 2
+# Nota: se omite "Protocol 2" del original — es obsoleto en OpenSSH ≥7.6
+# (Ubuntu 24.04 trae 9.x, sólo existe el protocolo 2) y emite un warning.
+
+# --- Política de contraseñas (pam_pwquality) --------------------------------
+security_password_retry: 3
+security_password_enforce_for_root: true
+security_password_minlen: 12
+security_password_ucredit: -1   # al menos una mayúscula
+security_password_lcredit: -1   # al menos una minúscula
+security_password_dcredit: -1   # al menos un número
+security_password_ocredit: -1   # al menos un carácter especial
+
+# --- Fail2ban ---------------------------------------------------------------
+security_fail2ban_maxretry: 5
+security_fail2ban_bantime: "1h"
+security_fail2ban_findtime: "10m"
+# CRÍTICO: nunca banear al nodo de control de Ansible. El override real
+# (malla WireGuard + subredes de cada nube) vive en group_vars/all.yml.
+security_fail2ban_ignoreip:
+  - 127.0.0.1/8
+  - ::1

@@ -1,0 +1,65 @@
+---
+# =============================================================================
+# Endurecimiento de seguridad — SSH, política de contraseñas y Fail2ban
+# =============================================================================
+#
+# Implementa security-playbook-corregido.docx sobre TODAS las máquinas de
+# WebHardMon (locales + GCP), adaptado a las particularidades del repo:
+#
+#   * NO edita /etc/ssh/sshd_config: escribe un drop-in en sshd_config.d/ para
+#     no pelearse con el hardening de cloud-init (10-webhardmon.conf).
+#   * Puerto SSH 2222 con AUTO-DETECCIÓN 22→2222: un nodo spot recién
+#     reconstruido arranca en el 22 (cloud-init); tras correr este playbook
+#     queda en el 2222. La detección hace el playbook reejecutable en cualquier
+#     punto de ese ciclo — requisito por spot+DELETE (ver group_vars/README.md).
+#   * ignoreip cubre la malla WireGuard (10.0.0.0/24) + las subredes de cada
+#     nube, para que el nodo de control de Ansible nunca se autobloquee.
+#
+# Ejecutar ANTES que los playbooks de servicio: deja los hosts en el puerto que
+# el inventario (ansible_port) espera en régimen permanente.
+#
+#   ansible-playbook -i inventory.ini security.yml            # real
+#   ansible-playbook -i inventory.ini security.yml --check    # simulación
+#   ansible-playbook -i inventory.ini security.yml --limit kafka
+- name: Endurecimiento de seguridad WebHardMon (SSH, contraseñas, Fail2ban)
+  hosts: webhardmon
+  become: true
+  gather_facts: false # se recogen tras fijar el puerto SSH correcto
+
+  pre_tasks:
+    - name: Detectar puerto SSH alcanzable (endurecido primero, luego el 22 de cloud-init)
+      ansible.builtin.wait_for:
+        host: "{{ ansible_host | default(inventory_hostname) }}"
+        port: "{{ item }}"
+        timeout: 5
+        state: started
+      delegate_to: localhost
+      become: false
+      loop:
+        - "{{ security_ssh_port }}"
+        - 22
+      register: security_ssh_port_probe
+      ignore_errors: true
+      changed_when: false
+
+    - name: Fijar ansible_port al primer puerto que respondió
+      ansible.builtin.set_fact:
+        ansible_port: >-
+          {{ security_ssh_port_probe.results
+             | selectattr('failed', 'equalto', false)
+             | map(attribute='item') | first }}
+
+    - name: Abortar si ningún puerto SSH responde (22 ni {{ security_ssh_port }})
+      ansible.builtin.fail:
+        msg: >-
+          {{ inventory_hostname }} no es alcanzable ni en el 22 ni en el
+          {{ security_ssh_port }}. ¿Está arrancado y con la ruta WireGuard lista?
+      when: >-
+        security_ssh_port_probe.results
+        | selectattr('failed', 'equalto', false) | list | length == 0
+
+    - name: Recoger facts ya con ansible_port={{ ansible_port }}
+      ansible.builtin.setup:
+
+  roles:
+    - security

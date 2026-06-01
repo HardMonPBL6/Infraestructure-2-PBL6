@@ -47,6 +47,7 @@ resource "local_file" "ansible_inventory" {
   content = templatefile("${path.module}/ansible/inventory.tmpl", {
     groups_by_role  = local.groups_by_role
     groups_by_cloud = local.groups_by_cloud
+    ssh_port        = var.ssh_port
   })
 }
 

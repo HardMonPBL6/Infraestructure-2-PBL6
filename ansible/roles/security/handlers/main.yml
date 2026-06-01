@@ -1,0 +1,12 @@
+---
+# roles/security/handlers
+# El servicio SSH se llama `ssh` en Debian/Ubuntu (alias `sshd`).
+- name: restart ssh
+  ansible.builtin.systemd:
+    name: ssh
+    state: restarted
+
+- name: restart fail2ban
+  ansible.builtin.systemd:
+    name: fail2ban
+    state: restarted

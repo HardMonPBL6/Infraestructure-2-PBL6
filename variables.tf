@@ -205,6 +205,12 @@ variable "wg_vpn_cidr" {
   default     = "10.0.0.0/24"
 }
 
+variable "ssh_port" {
+  description = "Puerto SSH en régimen permanente tras el endurecimiento (ansible/security.yml). Se emite como ansible_port en el inventario. Los nodos arrancan en el 22 (cloud-init) y security.yml los mueve a este puerto; security.yml autodetecta 22→este puerto, el resto de playbooks asumen este puerto."
+  type        = number
+  default     = 2222
+}
+
 variable "wg_mgmt_public_key" {
   description = "Clave publica WireGuard del nodo de gestion (portatil del operador)."
   type        = string

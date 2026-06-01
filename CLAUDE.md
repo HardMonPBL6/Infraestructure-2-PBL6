@@ -135,6 +135,21 @@ Because GCP nodes are shared, the generated inventory places one node in **multi
 - **Deterministic identity.** `broker.id`, `myid`, etc. derive from the host's index within its group (`groups['kafka'].index(...)`). The inventory is stable (`node-01/02/03`), so a node deleted by spot preemption rebuilds with the **same** id and rejoins the cluster.
 - Local single-service roles (nifi, hdfs, mapreduce, harbor) carry their own group_vars without these co-location constraints.
 
+### Security hardening (`ansible/security.yml`)
+
+`ansible/security.yml` + `roles/security` apply a baseline hardening pass to **every** WebHardMon host (`hosts: webhardmon`): SSH lockdown, `pam_pwquality` password policy, and Fail2ban. It's the corrected `security-playbook-corregido.docx` adapted to this repo's constraints — run it **before** the service playbooks. Key adaptations:
+
+- **SSH via drop-in, not `sshd_config`.** Settings land in `/etc/ssh/sshd_config.d/20-security.conf` (validated with `sshd -t -f` before write) so they reinforce — not fight — cloud-init's `10-webhardmon.conf`. `Protocol 2` from the original is dropped (obsolete on OpenSSH ≥7.6 / Ubuntu 24.04).
+- **SSH port 22 → 2222, with auto-detection.** Nodes boot on 22 (cloud-init); the playbook moves them to `var.ssh_port` (default 2222) and emits `ansible_port` into the inventory. `security.yml`'s `pre_tasks` probe `2222` then `22` and set `ansible_port` per host, so it's re-runnable across the spot-rebuild cycle (a preempted node comes back on 22, gets re-hardened to 2222). Other playbooks assume the steady-state 2222 from the inventory. The GCP firewall needs **no** change — it already allows all TCP from the WireGuard mesh (`gcp-network`: *SSH va por WireGuard*), so 2222 is reachable.
+- **Fail2ban `ignoreip` covers the control node.** Set in `group_vars/all.yml`: `127.0.0.1/8 ::1` + the WireGuard mesh (`10.0.0.0/24`) + each cloud's `/16` (`10.10/10.20/10.30`). Ansible reaches GCP from the mesh and local CTs from the LAN — without this you can ban yourself. Add your management laptop's LAN IP here if you drive the local CTs from a different subnet.
+
+Tunables are namespaced `security_*` (role `defaults/main.yml`, overridable in `group_vars/all.yml`). Run order:
+```bash
+ansible-playbook -i inventory.ini security.yml          # baseline first
+ansible-playbook -i inventory.ini security.yml --check   # dry run
+```
+If you change `var.ssh_port`, change `security_ssh_port` in `group_vars/all.yml` to match (the inventory side comes from Terraform, the sshd side from Ansible).
+
 ### Provisioning Scripts
 
 - `cloud-init/wireguard.yaml.tftpl` — GCP VM user-data: hostname, `ubuntu` user, SSH hardening, WireGuard install. Gateway nodes get a full `wg0.conf`; private nodes get a systemd one-shot service that adds static routes via their gateway.

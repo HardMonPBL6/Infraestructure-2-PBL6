@@ -7,6 +7,10 @@
 [all:vars]
 ansible_user=ubuntu
 ansible_python_interpreter=/usr/bin/python3
+# Puerto SSH en régimen permanente (tras ansible/security.yml). Los nodos
+# arrancan en el 22 via cloud-init; security.yml los endurece a este puerto y
+# autodetecta 22 -> este puerto, así que corre security.yml ANTES que el resto.
+ansible_port=${ssh_port}
 
 %{ for role, hosts in groups_by_role ~}
 [${role}]

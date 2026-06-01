@@ -1,0 +1,19 @@
+# {{ ansible_managed }}
+# Configuración personalizada de Fail2ban.
+
+[DEFAULT]
+bantime  = {{ security_fail2ban_bantime }}
+findtime = {{ security_fail2ban_findtime }}
+maxretry = {{ security_fail2ban_maxretry }}
+# IMPORTANTE: IPs que nunca se banean (malla WireGuard + subredes de cada nube)
+# para no bloquear al nodo de control de Ansible ni a los gateways.
+ignoreip = {{ security_fail2ban_ignoreip | join(' ') }}
+
+[sshd]
+enabled  = true
+port     = {{ security_ssh_port }}
+logpath  = /var/log/auth.log
+backend  = systemd
+maxretry = {{ security_fail2ban_maxretry }}
+bantime  = {{ security_fail2ban_bantime }}
+findtime = {{ security_fail2ban_findtime }}
