@@ -269,7 +269,7 @@ variable "cloudflare_enabled" {
 }
 
 variable "cloudflare_api_token" {
-  description = "API token Cloudflare (Account: Tunnel:Edit + Access:Edit; Zone: DNS:Edit). Requerido si cloudflare_enabled."
+  description = "API token Cloudflare (Account: Cloudflare Tunnel:Edit + Access: Apps and Policies:Edit + Access: Service Tokens:Edit; Zone: DNS:Edit). Requerido si cloudflare_enabled."
   type        = string
   sensitive   = true
   default     = ""

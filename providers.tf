@@ -47,8 +47,9 @@ provider "google-beta" {
   credentials = var.gcp_b_credentials_file != "" ? file(var.gcp_b_credentials_file) : null
 }
 
-# Cloudflare: API token (scopes: Account > Cloudflare Tunnel:Edit + Access:Edit,
-# Zone > DNS:Edit). Solo se usa si var.cloudflare_enabled = true.
+# Cloudflare: API token (scopes: Account > Cloudflare Tunnel:Edit + Access: Apps
+# and Policies:Edit + Access: Service Tokens:Edit, Zone > DNS:Edit). Solo se usa
+# si var.cloudflare_enabled = true.
 provider "cloudflare" {
   api_token = var.cloudflare_api_token
 }

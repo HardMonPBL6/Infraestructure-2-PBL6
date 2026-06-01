@@ -122,6 +122,7 @@ y crea sus `wg0.conf` apuntando a esas IPs estáticas (puerto `var.wg_port`, por
 2. Crea un **API token** (My Profile → API Tokens → Create Token, custom):
    - `Account` → `Cloudflare Tunnel`: Edit
    - `Account` → `Access: Apps and Policies`: Edit
+   - `Account` → `Access: Service Tokens`: Edit
    - `Zone` → `DNS`: Edit (sobre la zona del dominio)
 3. Anota `Account ID` y `Zone ID` (panel de la zona, columna derecha).
 

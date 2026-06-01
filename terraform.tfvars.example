@@ -60,7 +60,7 @@ wg_local_gw_public_key = "base64pubkeyLocal=="
 # Publica el endpoint de ingesta de NiFi en ingest.<zona> sin abrir NAT/VPN.
 # Pon cloudflare_enabled = false para desactivarlo (no se crea ningun recurso CF).
 cloudflare_enabled          = true
-cloudflare_api_token        = "cf-api-token-..."          # Account: Tunnel:Edit + Access:Edit; Zone: DNS:Edit
+cloudflare_api_token        = "cf-api-token-..."          # Account: Cloudflare Tunnel:Edit + Access: Apps and Policies:Edit + Access: Service Tokens:Edit; Zone: DNS:Edit
 cloudflare_account_id       = "0123456789abcdef0123456789abcdef"
 cloudflare_zone_id          = "abcdef0123456789abcdef0123456789"
 cloudflare_zone_name        = "example.com"
