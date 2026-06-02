@@ -1,0 +1,17 @@
+# ============================================================
+#  FASE 2 · terraform.tfvars  — ⚠ NO commitear
+# ============================================================
+
+name_prefix          = "webhardmon"
+ssh_private_key_path = "/home/iker/.ssh/webhardmon-lxc"
+
+harbor_registry = "10.10.1.50:5000"
+image_namenode  = "hadoop-namenode"
+image_datanode  = "hadoop-datanode"
+hadoop_version  = "2.0.0-hadoop3.2.1-java8"
+
+dfs_replication = 2
+dfs_blocksize   = 134217728
+
+namenode_rpc_port = 9000
+namenode_ui_port  = 9870
