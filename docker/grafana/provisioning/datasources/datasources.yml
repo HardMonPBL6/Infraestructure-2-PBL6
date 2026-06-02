@@ -1,0 +1,40 @@
+# Plantilla de referencia para el rol Ansible de Grafana.
+# Ansible renderiza este fichero con los valores de group_vars/grafana.yml
+# y lo monta en /etc/grafana/provisioning/datasources/ del contenedor.
+#
+# Las IPs {{ ... }} las sustituye el playbook; no usar este fichero directamente.
+
+apiVersion: 1
+
+datasources:
+  - name: cassandra-hot
+    type: hadesarchitect-cassandra-datasource
+    uid: cassandra-wh
+    url: "{{ groups['cassandra'][0] }}:9042"
+    jsonData:
+      keyspace: "{{ cassandra_keyspace }}"
+      user: cassandra
+      consistency: LOCAL_ONE
+    secureJsonData:
+      password: "{{ vault_cassandra_password }}"
+    isDefault: false
+
+  - name: mysql-telemetria
+    type: mysql
+    uid: mysql-wh
+    url: "{{ groups['mysql'][0] }}:{{ mysql_port }}"
+    database: "{{ mysql_database }}"
+    user: "{{ mysql_app_user | default('admin') }}"
+    secureJsonData:
+      password: "{{ vault_mysql_app_password }}"
+    isDefault: false
+
+  - name: elasticsearch
+    type: elasticsearch
+    uid: es-wh
+    url: "http://{{ groups['elasticsearch'][0] }}:9200"
+    jsonData:
+      esVersion: "8.0.0"
+      index: "webhardmon-*"
+      timeField: "@timestamp"
+    isDefault: false

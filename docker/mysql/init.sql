@@ -1,57 +1,58 @@
 -- WebHardMon — esquema de aplicación
--- Base de datos: empresas, administradores del panel y licencias (API keys por portátil).
+-- Base de datos: empresas (tenant), usuarios del panel y ordenadores registrados.
 --
 -- Este fichero se monta en /docker-entrypoint-initdb.d/ del contenedor MySQL
--- y se ejecuta automáticamente al crear la base de datos por primera vez.
+-- y se ejecuta automáticamente al crear el volumen por primera vez.
 
-CREATE DATABASE IF NOT EXISTS webhardmon
+CREATE DATABASE IF NOT EXISTS telemetriadb
   CHARACTER SET utf8mb4
   COLLATE utf8mb4_unicode_ci;
 
-USE webhardmon;
+USE telemetriadb;
 
 -- ─── empresa ────────────────────────────────────────────────────────────────
--- Tenant raíz. Cada empresa agrupa sus admins y sus licencias.
+-- Tenant raíz. Cada empresa agrupa sus usuarios y sus ordenadores.
 
 CREATE TABLE empresa (
     id     BIGINT       NOT NULL AUTO_INCREMENT,
-    nombre VARCHAR(255),
-    PRIMARY KEY (id)
+    nombre VARCHAR(255) NOT NULL,
+    codigo VARCHAR(40)  NOT NULL,
+    PRIMARY KEY (id),
+    UNIQUE KEY uk_empresa_codigo (codigo)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
 
 
--- ─── administrador ──────────────────────────────────────────────────────────
--- Usuarios del panel web. La contraseña se almacena como hash bcrypt
--- (la capa de aplicación nunca guarda el texto en claro).
+-- ─── usuario ────────────────────────────────────────────────────────────────
+-- Usuarios del panel web. Contraseña almacenada como hash bcrypt.
 
-CREATE TABLE administrador (
+CREATE TABLE usuario (
     id         BIGINT       NOT NULL AUTO_INCREMENT,
     username   VARCHAR(255) NOT NULL,
     password   VARCHAR(255) NOT NULL,
     empresa_id BIGINT       NOT NULL,
     PRIMARY KEY (id),
-    UNIQUE KEY uk_admin_username (username),
-    CONSTRAINT fk_admin_empresa
+    UNIQUE KEY uk_usuario_username (username),
+    CONSTRAINT fk_usuario_empresa
         FOREIGN KEY (empresa_id) REFERENCES empresa (id)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
 
 
--- ─── licencia ───────────────────────────────────────────────────────────────
--- API key del collector. Una licencia = un portátil autorizado para una empresa.
--- El collector envía (codigo, portatil); el backend verifica activa = 1.
--- La unicidad (empresa_id, portatil) impide que un mismo portátil tenga
--- dos licencias activas bajo la misma empresa.
+-- ─── ordenador ──────────────────────────────────────────────────────────────
+-- Portátil registrado en una empresa. El uuid_ordenador es el identificador
+-- único que el collector envía junto con las métricas a Cassandra/Kafka.
 
-CREATE TABLE licencia (
+CREATE TABLE ordenador (
     id             BIGINT       NOT NULL AUTO_INCREMENT,
-    codigo         VARCHAR(255) NOT NULL,
-    activa         TINYINT(1)   NOT NULL DEFAULT 1,
+    nombre         VARCHAR(255),
+    uuid_ordenador VARCHAR(36)  NOT NULL,
     empresa_id     BIGINT       NOT NULL,
-    portatil       VARCHAR(80)  NOT NULL,
-    fecha_creacion DATETIME(6)  NOT NULL,
     PRIMARY KEY (id),
-    UNIQUE KEY uk_licencia_codigo (codigo),
-    UNIQUE KEY uk_licencia_empresa_portatil (empresa_id, portatil),
-    CONSTRAINT fk_licencia_empresa
+    UNIQUE KEY uk_ordenador_uuid (uuid_ordenador),
+    CONSTRAINT fk_ordenador_empresa
         FOREIGN KEY (empresa_id) REFERENCES empresa (id)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
+
+
+-- ─── datos iniciales ────────────────────────────────────────────────────────
+
+INSERT INTO empresa (nombre, codigo) VALUES ('Demo Corp', 'DEMO-0000-0000-0000');

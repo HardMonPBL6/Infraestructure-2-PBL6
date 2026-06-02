@@ -353,7 +353,8 @@ variable "gcp_b_nodes" {
     public = bool
   }))
   default = [
-    { roles = ["hbase", "grafana"], public = true },
+    # node-01 publico: UI/servicio (Grafana + Matomo necesitan acceso desde internet)
+    { roles = ["hbase", "grafana", "matomo"], public = true },
     { roles = ["hbase", "mysql"], public = false },
     { roles = ["hbase", "elasticsearch"], public = false },
   ]

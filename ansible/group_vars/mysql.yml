@@ -4,9 +4,9 @@
 # licencias (API keys por portátil). NO es un almacén analítico.
 
 mysql_image: "{{ container_registry }}/mysql:{{ image_tag }}"
-mysql_port: 3306
+mysql_port: 3307                        # host port (container escucha en 3306)
 mysql_innodb_buffer_pool_mb: 2048      # cabe junto al RegionServer HBase del nodo
-mysql_database: webhardmon
+mysql_database: telemetriadb
 mysql_bind_host: "{{ inventory_hostname }}"
 
 # El init script se monta en /docker-entrypoint-initdb.d/ y MySQL lo ejecuta

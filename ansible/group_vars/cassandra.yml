@@ -4,7 +4,8 @@
 cassandra_image: "{{ container_registry }}/cassandra:{{ image_tag }}"
 cassandra_max_heap_mb: 4096
 cassandra_heap_newsize_mb: 800
-cassandra_cluster_name: "webhardmon-stream"
+cassandra_cluster_name: "WebHardMonCluster"
+cassandra_keyspace: webhardmon
 
 # Seeds = primeros 2 nodos del grupo (suficiente para bootstrap del anillo).
 cassandra_seeds: "{{ cassandra_nodes[:2] | join(',') }}"

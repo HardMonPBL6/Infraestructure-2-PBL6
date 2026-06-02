@@ -9,13 +9,27 @@ grafana_root_url: "http://{{ inventory_hostname }}:3000"
 # served/BI (MySQL star schema + Elasticsearch del propio gcp-b).
 grafana_datasources:
   - name: cassandra-hot
-    type: cassandra
+    type: hadesarchitect-cassandra-datasource
     url: "{{ groups['cassandra'][0] }}:9042"
-  - name: mysql-bi
+    jsonData:
+      keyspace: "{{ cassandra_keyspace }}"
+      user: cassandra
+      consistency: LOCAL_ONE
+    secureJsonData:
+      password: "{{ vault_cassandra_password }}"
+  - name: mysql-telemetria
     type: mysql
-    url: "{{ groups['mysql'][0] }}:3306"
+    url: "{{ groups['mysql'][0] }}:{{ mysql_port }}"
+    database: "{{ mysql_database }}"
+    user: "{{ mysql_app_user | default('admin') }}"
+    secureJsonData:
+      password: "{{ vault_mysql_app_password }}"
   - name: elasticsearch
     type: elasticsearch
     url: "http://{{ groups['elasticsearch'][0] }}:9200"
+    jsonData:
+      esVersion: "8.0.0"
+      index: "webhardmon-*"
+      timeField: "@timestamp"
 
 # grafana_admin_password: "{{ vault_grafana_admin_password }}"

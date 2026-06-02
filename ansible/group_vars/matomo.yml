@@ -1,0 +1,22 @@
+---
+# group_vars/matomo.yml — singleton (gcp-b node-01, público, junto a Grafana).
+# Matomo se encarga de la analítica web del panel de WebHardMon.
+# Necesita su propia instancia MySQL (matomo-mysql), que corre en el mismo nodo.
+
+matomo_image: "matomo:5.1"
+matomo_port: 8080
+
+# MySQL dedicado a Matomo (no comparte instancia con telemetriadb).
+matomo_mysql_image: "mysql:8.0"
+matomo_mysql_database: matomo
+matomo_mysql_user: matomo
+# matomo_mysql_password: "{{ vault_matomo_mysql_password }}"
+
+# Variables de entorno que pasa el rol Ansible al contenedor de Matomo.
+# La contraseña la inyecta vault en tiempo de despliegue.
+matomo_env:
+  MATOMO_DATABASE_HOST: matomo-mysql
+  MATOMO_DATABASE_ADAPTER: mysql
+  MATOMO_DATABASE_DBNAME: "{{ matomo_mysql_database }}"
+  MATOMO_DATABASE_USERNAME: "{{ matomo_mysql_user }}"
+  # MATOMO_DATABASE_PASSWORD: "{{ vault_matomo_mysql_password }}"
