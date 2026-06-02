@@ -59,6 +59,17 @@ CREATE TABLE IF NOT EXISTS licencia (
         FOREIGN KEY (usuario_id) REFERENCES usuario(id)
 ) ENGINE=InnoDB;
 
+-- ─── vista de lookup para NiFi ────────────────────────────────────────────────
+-- NiFi consulta esta vista con el `codigo`: valida (activa=1) y obtiene empresa_id
+-- + nombre en la misma consulta para enriquecer el Avro (sin tocar la API de Java).
+CREATE OR REPLACE VIEW licencia_lookup AS
+SELECT l.codigo           AS codigo,
+       l.activa           AS activa,
+       u.empresa_id       AS empresa_id,
+       u.nombre_ordenador AS nombre
+FROM licencia l
+JOIN usuario  u ON u.id = l.usuario_id;
+
 -- ─── datos de prueba ────────────────────────────────────────────────────────
 -- Contraseña del admin: test
 INSERT IGNORE INTO empresa (id, nombre) VALUES (1, 'Acme Corp');
