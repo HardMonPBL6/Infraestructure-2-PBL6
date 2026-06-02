@@ -28,10 +28,11 @@ gcp_b_credentials_file = "C:/Users/sebastian/.gcp/webhardmon-b.json"
 #
 # Reparto de servicios por nodo (override solo si quieres otra distribucion):
 # gcp_a_nodes = [
-#   { roles = ["kafka", "zookeeper", "cassandra", "schema_registry"], public = true  },
-#   { roles = ["kafka", "zookeeper", "cassandra", "java"],            public = false },
-#   { roles = ["kafka", "zookeeper", "cassandra", "java"],            public = false },
+#   { roles = ["kafka", "zookeeper", "cassandra", "schema_registry"],     public = true  },
+#   { roles = ["kafka", "zookeeper", "cassandra", "java", "java_bridge"], public = false },
+#   { roles = ["kafka", "zookeeper", "cassandra", "java"],                public = false },
 # ]
+# (java = nodos RMI StressScore; java_bridge = el puente Kafka->RMI->Cassandra, 1 instancia)
 # gcp_b_nodes = [
 #   { roles = ["hbase", "grafana"],       public = true  },
 #   { roles = ["hbase", "mysql"],         public = false },

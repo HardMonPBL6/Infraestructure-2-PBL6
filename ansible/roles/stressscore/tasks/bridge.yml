@@ -1,0 +1,20 @@
+---
+# Puente Kafka -> RMI -> Cassandra (una instancia, grupo [java_bridge]).
+# Lee las variables de group_vars/java_bridge.yml. Consume Avro (Schema Registry),
+# calcula StressScore por RMI en el grupo [java] y escribe en Cassandra mediciones.
+
+- name: Desplegar puente StressScore
+  community.docker.docker_container:
+    name: "stressscore-bridge"
+    image: "{{ bridge_image }}"
+    pull: true
+    restart_policy: unless-stopped
+    network_mode: host
+    env:
+      KAFKA_BOOTSTRAP_SERVERS: "{{ bridge_kafka_bootstrap }}"
+      SCHEMA_REGISTRY_URL: "{{ bridge_schema_registry_url }}"
+      CASSANDRA_CONTACT_POINTS: "{{ bridge_cassandra_contact_points }}"
+      CASSANDRA_LOCAL_DC: "{{ bridge_cassandra_local_dc }}"
+      CASSANDRA_KEYSPACE: "{{ bridge_cassandra_keyspace }}"
+      SEEDS: "{{ bridge_seeds }}"
+      JVM_OPTS: "-Xmx{{ bridge_heap_mb }}m"

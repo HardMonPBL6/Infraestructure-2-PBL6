@@ -1,0 +1,3 @@
+[submodule "services/stressscore"]
+	path = services/stressscore
+	url = https://github.com/aimartelleria/ConcurrentesPBL6.git

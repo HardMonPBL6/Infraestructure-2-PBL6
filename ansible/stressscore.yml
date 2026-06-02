@@ -1,0 +1,29 @@
+---
+# Despliegue del servicio Java StressScore (split: nodos RMI + puente).
+#
+# Requiere:
+#   - Imágenes en el registry (docker/build-and-push.sh stressscore java-stressscore).
+#   - Kafka, Schema Registry y Cassandra ya desplegados en gcp-a.
+#   - Colección: ansible-galaxy collection install community.docker
+#
+# Ejecutar tras security.yml:
+#   ansible-playbook -i ansible/inventory.ini ansible/stressscore.yml
+
+- name: Nodos RMI StressScore (grupo java)
+  hosts: java
+  become: true
+  roles:
+    - docker
+    - stressscore
+
+- name: Puente StressScore Kafka -> RMI -> Cassandra (grupo java_bridge)
+  hosts: java_bridge
+  become: true
+  tasks:
+    - name: Asegurar Docker
+      ansible.builtin.import_role:
+        name: docker
+    - name: Desplegar el puente
+      ansible.builtin.import_role:
+        name: stressscore
+        tasks_from: bridge.yml

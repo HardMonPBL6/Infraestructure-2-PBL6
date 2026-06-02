@@ -1,0 +1,20 @@
+---
+# Nodo RMI del clúster StressScore (uno por host del grupo [java]).
+# Lee las variables de group_vars/java.yml.
+
+- name: Desplegar nodo RMI StressScore ({{ inventory_hostname }})
+  community.docker.docker_container:
+    name: "stressscore-{{ inventory_hostname }}"
+    image: "{{ javaapp_image }}"
+    pull: true
+    restart_policy: unless-stopped
+    # network_mode host: RMI anuncia la IP WireGuard del host, así el stub es
+    # alcanzable entre nodos/nubes (evita el NAT del bridge de Docker con RMI).
+    network_mode: host
+    env:
+      NODE_ID: "{{ inventory_hostname }}"
+      HOST: "{{ inventory_hostname }}"
+      PORT: "{{ javaapp_rmi_registry_port | string }}"
+      RMI_OBJECT_PORT: "{{ javaapp_rmi_object_port | string }}"
+      SEEDS: "{{ javaapp_seeds }}"
+      JVM_OPTS: "-Djava.rmi.server.hostname={{ javaapp_rmi_server_hostname }} -Xmx{{ javaapp_heap_mb }}m"

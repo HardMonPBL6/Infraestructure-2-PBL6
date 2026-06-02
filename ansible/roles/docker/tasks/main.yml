@@ -1,0 +1,30 @@
+---
+# Rol común: instala Docker y autentica contra el registry de la nube.
+# Prerequisito de cualquier rol que arranque contenedores.
+
+- name: Instalar Docker
+  ansible.builtin.apt:
+    name:
+      - docker.io
+    update_cache: true
+    state: present
+
+- name: Asegurar que el servicio Docker está activo
+  ansible.builtin.systemd:
+    name: docker
+    enabled: true
+    state: started
+
+- name: Añadir usuarios al grupo docker
+  ansible.builtin.user:
+    name: "{{ item }}"
+    groups: docker
+    append: true
+  loop: "{{ docker_users | default(['ubuntu']) }}"
+
+# En GCP las VMs se autentican con su service account (roles/artifactregistry.reader);
+# el credential helper de gcloud configura Docker para el Artifact Registry de la nube.
+- name: Autenticar Docker contra el registry (Artifact Registry vía gcloud)
+  ansible.builtin.command: "gcloud auth configure-docker {{ docker_registry_host }} --quiet"
+  when: docker_registry_host | default('') | length > 0
+  changed_when: false

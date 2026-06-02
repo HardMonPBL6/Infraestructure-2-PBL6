@@ -26,6 +26,18 @@ declare -A CLOUD=(
   [hbase]=gcp-b [mysql]=gcp-b [elasticsearch]=gcp-b [grafana]=gcp-b [matomo]=gcp-b
 )
 
+# Servicios cuyo build NO es docker/<svc>: contexto + Dockerfile a medida.
+# Las imágenes Java se construyen desde el submódulo del repo de la app (multi-módulo).
+APP_SRC="$(cd "$(dirname "${BASH_SOURCE[0]}")/../services/stressscore" 2>/dev/null && pwd || true)"
+declare -A BUILD_CTX=(
+  [java-stressscore]="$APP_SRC"
+  [stressscore-bridge]="$APP_SRC"
+)
+declare -A BUILD_FILE=(
+  [java-stressscore]="$APP_SRC/server/Dockerfile"
+  [stressscore-bridge]="$APP_SRC/client/Dockerfile"
+)
+
 registry_for() {
   case "$1" in
     gcp-a) echo "${GCP_A_LOCATION}-docker.pkg.dev/${GCP_A_PROJECT}/${PROJECT_NAME}-a-docker" ;;
@@ -43,6 +55,10 @@ if [ ${#services[@]} -eq 0 ]; then
   for d in "$SCRIPT_DIR"/*/; do
     [ -f "${d}Dockerfile" ] && services+=("$(basename "$d")")
   done
+  # Servicios con contexto externo (submódulo): añadir si no están ya.
+  for svc in "${!BUILD_CTX[@]}"; do
+    [[ " ${services[*]} " == *" $svc "* ]] || services+=("$svc")
+  done
 fi
 [ ${#services[@]} -eq 0 ] && { echo "No hay Dockerfiles que construir."; exit 0; }
 
@@ -53,12 +69,13 @@ gcloud auth configure-docker "${GCP_A_LOCATION}-docker.pkg.dev,${GCP_B_LOCATION}
 failed=()
 for svc in "${services[@]}"; do
   cloud="${CLOUD[$svc]:-}"
-  ctx="$SCRIPT_DIR/$svc"
+  ctx="${BUILD_CTX[$svc]:-$SCRIPT_DIR/$svc}"
+  dockerfile="${BUILD_FILE[$svc]:-$ctx/Dockerfile}"
   if [ -z "$cloud" ]; then echo "!! $svc: sin mapeo de nube, omitido"; continue; fi
-  if [ ! -f "$ctx/Dockerfile" ]; then echo "!! $svc: sin Dockerfile, omitido"; continue; fi
+  if [ ! -f "$dockerfile" ]; then echo "!! $svc: sin Dockerfile ($dockerfile) — ¿submódulo sin inicializar?, omitido"; continue; fi
   img="$(registry_for "$cloud")/$svc:$IMAGE_TAG"
   echo "==> [$cloud] $svc -> $img"
-  if docker build -t "$img" "$ctx" && docker push "$img"; then
+  if docker build -t "$img" -f "$dockerfile" "$ctx" && docker push "$img"; then
     echo "    OK"
   else
     echo "    FALLO"; failed+=("$svc")
