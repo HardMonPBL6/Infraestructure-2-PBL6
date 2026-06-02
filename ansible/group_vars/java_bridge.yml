@@ -1,0 +1,31 @@
+---
+# group_vars/java_bridge.yml — puente Kafka -> RMI -> Cassandra (Client).
+# PROPUESTA (split de 2 imágenes): 1 instancia en gcp-a (p.ej. node-02).
+# Consume Avro de Kafka (deserializa con el Schema Registry), calcula el StressScore
+# delegando por RMI en el grupo `java`, y escribe la fila en Cassandra.
+# Ack manual + dead-letter topic `<topic>.DLT` (at-least-once).
+
+bridge_image: "{{ container_registry }}/stressscore-bridge:{{ image_tag }}"
+bridge_heap_mb: 768
+
+# Kafka local (mismas VMs gcp-a). Mismo patrón que kafka.yml.
+bridge_kafka_bootstrap: "{{ kafka_brokers | map('regex_replace', '$', ':9092') | join(',') }}"
+
+# Schema Registry (gcp-a node-01).
+bridge_schema_registry_url: "http://{{ hostvars[schema_registry_node].ansible_host }}:{{ hostvars[schema_registry_node].schema_registry_port | default(8081) }}"
+
+# Cassandra (anillo gcp-a).
+bridge_cassandra_contact_points: "{{ cassandra_nodes | map('regex_replace', '$', ':9042') | join(',') }}"
+bridge_cassandra_local_dc: "datacenter1"      # CONFIRMAR el datacenter real de Cassandra
+bridge_cassandra_keyspace: "webhardmon"
+
+# Seeds RMI (los nodos del grupo `java`) que el bridge usa como cliente.
+bridge_seeds: "{{ groups['java'] | map('regex_replace', '$', ':1099') | join(' ') }}"
+
+# Mapeo a env/args del contenedor `stressscore-bridge`:
+#   KAFKA_BOOTSTRAP_SERVERS={{ bridge_kafka_bootstrap }}
+#   SCHEMA_REGISTRY_URL={{ bridge_schema_registry_url }}
+#   CASSANDRA_CONTACT_POINTS={{ bridge_cassandra_contact_points }}
+#   CASSANDRA_LOCAL_DC={{ bridge_cassandra_local_dc }}
+#   CASSANDRA_KEYSPACE={{ bridge_cassandra_keyspace }}
+#   args (seeds RMI): {{ bridge_seeds }}

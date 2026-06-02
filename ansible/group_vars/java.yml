@@ -1,18 +1,21 @@
 ---
-# group_vars/java.yml — cluster Java/RMI StressScore (2 nodos: gcp-a node-02/03).
+# group_vars/java.yml — nodos RMI StressScore (ClusterNode, gcp-a node-02/03).
+# PROPUESTA (split de 2 imágenes): este grupo son SOLO los nodos RMI de cómputo.
+# El consumo de Kafka + escritura en Cassandra lo hace el "bridge" (java_bridge.yml).
 
 javaapp_image: "{{ container_registry }}/stressscore:{{ image_tag }}"
 javaapp_heap_mb: 1536
 javaapp_rmi_registry_port: 1099
-javaapp_rmi_object_port: 1100
+javaapp_rmi_object_port: 1100        # puerto FIJO del objeto RMI -> env RMI_OBJECT_PORT
 
-# Consume de Kafka local y escribe enriquecido en Cassandra (mismas VMs).
-javaapp_kafka_bootstrap: "{{ kafka_brokers | map('regex_replace', '$', ':9092') | join(',') }}"
-javaapp_cassandra_contact_points: "{{ cassandra_nodes | join(',') }}"
-
-# Deserializa los records Avro de Kafka con el Schema Registry (gcp-a node-01,
-# misma nube). KafkaAvroDeserializer resuelve el schema id de cada mensaje aqui.
-javaapp_schema_registry_url: "http://{{ hostvars[schema_registry_node].ansible_host }}:{{ hostvars[schema_registry_node].schema_registry_port | default(8081) }}"
-
-# hostname RMI anunciado = IP interna GCP del nodo (accesible via WireGuard entre nubes).
+# hostname RMI anunciado = IP interna GCP del nodo (alcanzable via WireGuard).
 javaapp_rmi_server_hostname: "{{ inventory_hostname }}"
+
+# Seeds del gossip = todos los nodos RMI en su puerto de registry.
+javaapp_seeds: "{{ groups['java'] | map('regex_replace', '$', ':' ~ javaapp_rmi_registry_port) | join(' ') }}"
+
+# Mapeo a env del contenedor `stressscore`:
+#   NODE_ID={{ inventory_hostname }}  HOST={{ inventory_hostname }}
+#   PORT={{ javaapp_rmi_registry_port }}  RMI_OBJECT_PORT={{ javaapp_rmi_object_port }}
+#   SEEDS={{ javaapp_seeds }}
+#   JVM_OPTS=-Djava.rmi.server.hostname={{ javaapp_rmi_server_hostname }}

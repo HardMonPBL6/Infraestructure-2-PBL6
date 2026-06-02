@@ -22,7 +22,7 @@ HARBOR_HOST="${HARBOR_HOST:-harbor.local}"
 # servicio -> nube
 declare -A CLOUD=(
   [nifi]=local [hdfs]=local [mapreduce]=local
-  [kafka]=gcp-a [zookeeper]=gcp-a [cassandra]=gcp-a [java-stressscore]=gcp-a [schema-registry]=gcp-a
+  [kafka]=gcp-a [zookeeper]=gcp-a [cassandra]=gcp-a [java-stressscore]=gcp-a [stressscore-bridge]=gcp-a [schema-registry]=gcp-a
   [hbase]=gcp-b [mysql]=gcp-b [elasticsearch]=gcp-b [grafana]=gcp-b
 )
 
