@@ -1,0 +1,12 @@
+---
+# Panel web WebHardMon (capa service).
+# Requiere MySQL (gcp-b) y Cassandra (gcp-a) desplegados; imagen en el registry
+# (docker/build-and-push.sh web). Colección: community.docker.
+#   ansible-playbook -i ansible/inventory.ini ansible/web.yml
+
+- name: Panel web WebHardMon
+  hosts: web
+  become: true
+  roles:
+    - docker
+    - web

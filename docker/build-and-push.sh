@@ -23,19 +23,22 @@ HARBOR_HOST="${HARBOR_HOST:-harbor.local}"
 declare -A CLOUD=(
   [nifi]=local [hdfs]=local [mapreduce]=local
   [kafka]=gcp-a [zookeeper]=gcp-a [cassandra]=gcp-a [java-stressscore]=gcp-a [stressscore-bridge]=gcp-a [schema-registry]=gcp-a
-  [hbase]=gcp-b [mysql]=gcp-b [elasticsearch]=gcp-b [grafana]=gcp-b [matomo]=gcp-b
+  [hbase]=gcp-b [mysql]=gcp-b [elasticsearch]=gcp-b [grafana]=gcp-b [matomo]=gcp-b [web]=gcp-b
 )
 
 # Servicios cuyo build NO es docker/<svc>: contexto + Dockerfile a medida.
 # Las imágenes Java se construyen desde el submódulo del repo de la app (multi-módulo).
 APP_SRC="$(cd "$(dirname "${BASH_SOURCE[0]}")/../services/stressscore" 2>/dev/null && pwd || true)"
+WEB_SRC="$(cd "$(dirname "${BASH_SOURCE[0]}")/../services/web" 2>/dev/null && pwd || true)"
 declare -A BUILD_CTX=(
   [java-stressscore]="$APP_SRC"
   [stressscore-bridge]="$APP_SRC"
+  [web]="$WEB_SRC"
 )
 declare -A BUILD_FILE=(
   [java-stressscore]="$APP_SRC/server/Dockerfile"
   [stressscore-bridge]="$APP_SRC/client/Dockerfile"
+  [web]="$WEB_SRC/Dockerfile"
 )
 
 registry_for() {

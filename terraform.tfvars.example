@@ -34,10 +34,11 @@ gcp_b_credentials_file = "C:/Users/sebastian/.gcp/webhardmon-b.json"
 # ]
 # (java = nodos RMI StressScore; java_bridge = el puente Kafka->RMI->Cassandra, 1 instancia)
 # gcp_b_nodes = [
-#   { roles = ["hbase", "grafana"],       public = true  },
-#   { roles = ["hbase", "mysql"],         public = false },
-#   { roles = ["hbase", "elasticsearch"], public = false },
+#   { roles = ["hbase", "grafana", "web"], public = true  },
+#   { roles = ["hbase", "mysql"],          public = false },
+#   { roles = ["hbase", "elasticsearch"],  public = false },
 # ]
+# (web = panel WebHardMon, capa service; lee MySQL local y Cassandra de gcp-a)
 
 # ---- WireGuard VPN inter-nube -----------------------------------------------
 # Genera los keypairs con estos comandos (uno por gateway):

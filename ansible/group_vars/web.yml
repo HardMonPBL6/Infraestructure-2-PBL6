@@ -1,0 +1,24 @@
+---
+# group_vars/web.yml — panel web WebHardMon (Spring Boot, capa service). 1 instancia (gcp-b).
+# Lee MySQL (telemetriadb; crea tablas con Hibernate ddl-auto:update), Cassandra
+# (lectura de mediciones/ordenadores) y embebe dashboards de Grafana.
+
+web_image: "{{ container_registry }}/web:{{ image_tag }}"
+web_heap_mb: 768
+web_port: 8080
+
+# MySQL (gcp-b).
+web_db_host: "{{ hostvars[groups['mysql'][0]].ansible_host }}"
+web_db_port: 3306
+web_db_name: telemetriadb
+web_db_user: root
+web_db_pass: root
+
+# Cassandra (gcp-a) — contact-points = hosts (sin puerto), puerto aparte.
+web_cassandra_contact_points: "{{ cassandra_nodes | join(',') }}"
+web_cassandra_port: 9042
+web_cassandra_keyspace: webhardmon
+web_cassandra_local_dc: datacenter1
+
+# Grafana (gcp-b) — base para los dashboards embebidos en el panel.
+web_grafana_base: "http://{{ hostvars[groups['grafana'][0]].ansible_host }}:3000"

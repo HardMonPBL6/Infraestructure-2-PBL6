@@ -1,0 +1,32 @@
+---
+# ============================================================================
+# Orquestador global de despliegue de WebHardMon.
+#
+#   ansible-galaxy collection install community.docker
+#   tofu apply                      # provisiona + genera ansible/inventory.ini
+#   ansible-playbook -i ansible/inventory.ini ansible/site.yml
+#
+# Orden: seguridad -> servicios base (datos/mensajería) -> aplicaciones.
+# Los servicios base aún NO tienen rol de despliegue (solo group_vars). A medida
+# que el equipo cree roles/<servicio> + <servicio>.yml, descomenta su línea aquí.
+# ============================================================================
+
+# 1) Endurecimiento (cambia el puerto SSH; debe ir PRIMERO).
+- import_playbook: security.yml
+
+# 2) Servicios base — PENDIENTE de roles (los añade el equipo, mismo patrón
+#    que roles/stressscore: roles/<svc> + <svc>.yml). Dependencias de orden:
+#    zookeeper -> kafka -> schema_registry ; cassandra ; mysql ; nifi ; hbase ; elasticsearch ; grafana.
+# - import_playbook: zookeeper.yml
+# - import_playbook: kafka.yml
+# - import_playbook: schema_registry.yml
+# - import_playbook: cassandra.yml
+# - import_playbook: mysql.yml
+# - import_playbook: nifi.yml
+# - import_playbook: hbase.yml
+# - import_playbook: elasticsearch.yml
+# - import_playbook: grafana.yml
+
+# 3) Aplicaciones (ya tienen rol + playbook).
+- import_playbook: stressscore.yml   # nodos RMI + puente (gcp-a)
+- import_playbook: web.yml           # panel web (gcp-b)

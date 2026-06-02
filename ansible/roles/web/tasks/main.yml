@@ -1,0 +1,26 @@
+---
+# Panel web WebHardMon (Spring Boot). Lee group_vars/web.yml.
+
+- name: Desplegar panel web WebHardMon
+  community.docker.docker_container:
+    name: web
+    image: "{{ web_image }}"
+    pull: true
+    restart_policy: unless-stopped
+    network_mode: host          # alcanza MySQL (gcp-b) y Cassandra (gcp-a) por WireGuard
+    env:
+      DB_HOST: "{{ web_db_host }}"
+      DB_PORT: "{{ web_db_port | string }}"
+      DB_NAME: "{{ web_db_name }}"
+      DB_USER: "{{ web_db_user }}"
+      DB_PASS: "{{ web_db_pass }}"
+      DB_USE_SSL: "false"
+      CASSANDRA_CONTACT_POINTS: "{{ web_cassandra_contact_points }}"
+      CASSANDRA_PORT: "{{ web_cassandra_port | string }}"
+      CASSANDRA_KEYSPACE: "{{ web_cassandra_keyspace }}"
+      CASSANDRA_LOCAL_DATACENTER: "{{ web_cassandra_local_dc }}"
+      GRAFANA_DASHBOARD_URL: "{{ web_grafana_base }}/d-solo/webhardmon-empresa/webhardmon-empresa"
+      GRAFANA_EMPRESA_DASHBOARD_URL: "{{ web_grafana_base }}/d-solo/webhardmon-empresa/webhardmon-empresa"
+      GRAFANA_ORDENADORES_DASHBOARD_URL: "{{ web_grafana_base }}/d-solo/webhardmon-ordenadores/webhardmon-ordenadores"
+      # El entrypoint es exec (java -jar); el heap se fija por JAVA_TOOL_OPTIONS.
+      JAVA_TOOL_OPTIONS: "-Xmx{{ web_heap_mb }}m"
