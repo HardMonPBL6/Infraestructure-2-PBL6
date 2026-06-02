@@ -1,58 +1,70 @@
--- WebHardMon — esquema de aplicación
--- Base de datos: empresas (tenant), usuarios del panel y ordenadores registrados.
---
--- Este fichero se monta en /docker-entrypoint-initdb.d/ del contenedor MySQL
--- y se ejecuta automáticamente al crear el volumen por primera vez.
+-- WebHardMon — esquema MySQL (CANÓNICO, alineado con el repo de la app WebHardMon).
+-- BD de la aplicación: empresas, administradores del panel, usuarios (ordenadores)
+-- y licencias del agente. La app usa Hibernate ddl-auto:update; este fichero crea
+-- la BD a mano y siembra datos de prueba. Se monta en /docker-entrypoint-initdb.d/.
 
 CREATE DATABASE IF NOT EXISTS telemetriadb
-  CHARACTER SET utf8mb4
-  COLLATE utf8mb4_unicode_ci;
+    CHARACTER SET utf8mb4
+    COLLATE utf8mb4_unicode_ci;
 
 USE telemetriadb;
 
--- ─── empresa ────────────────────────────────────────────────────────────────
--- Tenant raíz. Cada empresa agrupa sus usuarios y sus ordenadores.
-
-CREATE TABLE empresa (
+-- ─── empresa ──────────────────────────────────────────────────────────────
+CREATE TABLE IF NOT EXISTS empresa (
     id     BIGINT       NOT NULL AUTO_INCREMENT,
     nombre VARCHAR(255) NOT NULL,
-    codigo VARCHAR(40)  NOT NULL,
-    PRIMARY KEY (id),
-    UNIQUE KEY uk_empresa_codigo (codigo)
-) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
+    PRIMARY KEY (id)
+) ENGINE=InnoDB;
 
-
--- ─── usuario ────────────────────────────────────────────────────────────────
--- Usuarios del panel web. Contraseña almacenada como hash bcrypt.
-
-CREATE TABLE usuario (
+-- ─── administrador ──────────────────────────────────────────────────────────
+-- Usuarios con acceso al panel web (rol ADMIN).
+CREATE TABLE IF NOT EXISTS administrador (
     id         BIGINT       NOT NULL AUTO_INCREMENT,
     username   VARCHAR(255) NOT NULL,
     password   VARCHAR(255) NOT NULL,
     empresa_id BIGINT       NOT NULL,
     PRIMARY KEY (id),
-    UNIQUE KEY uk_usuario_username (username),
-    CONSTRAINT fk_usuario_empresa
-        FOREIGN KEY (empresa_id) REFERENCES empresa (id)
-) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
+    CONSTRAINT uk_administrador_username UNIQUE (username),
+    CONSTRAINT fk_administrador_empresa
+        FOREIGN KEY (empresa_id) REFERENCES empresa(id)
+) ENGINE=InnoDB;
 
-
--- ─── ordenador ──────────────────────────────────────────────────────────────
--- Portátil registrado en una empresa. El uuid_ordenador es el identificador
--- único que el collector envía junto con las métricas a Cassandra/Kafka.
-
-CREATE TABLE ordenador (
-    id             BIGINT       NOT NULL AUTO_INCREMENT,
-    nombre         VARCHAR(255),
-    uuid_ordenador VARCHAR(36)  NOT NULL,
-    empresa_id     BIGINT       NOT NULL,
+-- ─── usuario ──────────────────────────────────────────────────────────────
+-- Empleado con un ordenador (sin acceso web). nombre_ordenador == `nombre` en
+-- las tablas Cassandra ordenadores y mediciones.
+CREATE TABLE IF NOT EXISTS usuario (
+    id               BIGINT       NOT NULL AUTO_INCREMENT,
+    nombre           VARCHAR(100) NOT NULL,
+    nombre_ordenador VARCHAR(80)  NOT NULL,
+    empresa_id       BIGINT       NOT NULL,
     PRIMARY KEY (id),
-    UNIQUE KEY uk_ordenador_uuid (uuid_ordenador),
-    CONSTRAINT fk_ordenador_empresa
-        FOREIGN KEY (empresa_id) REFERENCES empresa (id)
-) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
+    CONSTRAINT uk_usuario_empresa_ordenador UNIQUE (empresa_id, nombre_ordenador),
+    CONSTRAINT fk_usuario_empresa
+        FOREIGN KEY (empresa_id) REFERENCES empresa(id)
+) ENGINE=InnoDB;
 
+-- ─── licencia ──────────────────────────────────────────────────────────────
+-- API key del agente Go (1-1 con usuario). El agente envía `codigo` a
+-- POST /api/agente/validar; el panel verifica activa=1 y devuelve empresaId+nombreOrdenador.
+CREATE TABLE IF NOT EXISTS licencia (
+    id             BIGINT       NOT NULL AUTO_INCREMENT,
+    codigo         VARCHAR(255) NOT NULL,
+    activa         TINYINT(1)   NOT NULL DEFAULT 1,
+    fecha_creacion DATETIME     NOT NULL,
+    usuario_id     BIGINT       NOT NULL,
+    PRIMARY KEY (id),
+    CONSTRAINT uk_licencia_codigo  UNIQUE (codigo),
+    CONSTRAINT uk_licencia_usuario UNIQUE (usuario_id),
+    CONSTRAINT fk_licencia_usuario
+        FOREIGN KEY (usuario_id) REFERENCES usuario(id)
+) ENGINE=InnoDB;
 
--- ─── datos iniciales ────────────────────────────────────────────────────────
-
-INSERT INTO empresa (nombre, codigo) VALUES ('Demo Corp', 'DEMO-0000-0000-0000');
+-- ─── datos de prueba ────────────────────────────────────────────────────────
+-- Contraseña del admin: test
+INSERT IGNORE INTO empresa (id, nombre) VALUES (1, 'Acme Corp');
+INSERT IGNORE INTO administrador (id, username, password, empresa_id)
+VALUES (1, 'admin', '{bcrypt}$2b$12$Huz.a4s2smRK1xhHfTANf.eeRf12QMAuWqrwz8janrY8N8vtLU3KC', 1);
+INSERT IGNORE INTO usuario (id, nombre, nombre_ordenador, empresa_id)
+VALUES (1, 'Usuario Prueba', 'PC-TEST', 1);
+INSERT IGNORE INTO licencia (id, codigo, activa, fecha_creacion, usuario_id)
+VALUES (1, 'WHM-TEST-TEST-TEST-AABB', 1, NOW(), 1);

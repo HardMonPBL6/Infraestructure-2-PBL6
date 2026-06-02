@@ -1,6 +1,9 @@
--- WebHardMon — esquema Cassandra
+-- WebHardMon — esquema Cassandra (CANÓNICO, alineado con el repo de la app WebHardMon).
 -- RF=3: cada dato se replica en los 3 nodos del anillo (sin SPoF).
 -- El entrypoint lo aplica una vez al arrancar el primer nodo.
+--
+-- NOTA: se usa el modelo `mediciones` (no `metricas`): es el que consultan el panel
+-- (CassandraTelemetryService), Grafana y el que escribe el servicio Java StressScore.
 
 CREATE KEYSPACE IF NOT EXISTS webhardmon
   WITH replication = {
@@ -11,47 +14,42 @@ CREATE KEYSPACE IF NOT EXISTS webhardmon
 
 USE webhardmon;
 
--- ─── metricas ────────────────────────────────────────────────────────────────
--- Serie temporal de hardware por ordenador y día.
--- PK: ((empresa_id, ordenador_uuid, fecha), ts DESC)
---   · Partición por empresa + ordenador + día → ~86400 filas/partición (una por segundo).
---   · ts DESC: la consulta "últimas N métricas" es una lectura secuencial eficiente.
--- TTL 30 días: los datos más antiguos expiran automáticamente.
+-- ─── empresas ─────────────────────────────────────────────────────────────────
+-- Espejo de la tabla empresa de MySQL (enlaza ambas BBDD por empresa_id).
+CREATE TABLE IF NOT EXISTS empresas (
+    empresa_id bigint,
+    nombre     text,
+    PRIMARY KEY (empresa_id)
+);
 
-CREATE TABLE IF NOT EXISTS metricas (
-    empresa_id     TEXT,
-    ordenador_uuid TEXT,
-    fecha          DATE,
-    ts             TIMESTAMP,
-    cpu_uso        FLOAT,
-    cpu_temp       FLOAT,
-    ram_uso        FLOAT,
-    ram_total      FLOAT,
-    disco_uso      FLOAT,
-    disco_total    FLOAT,
-    red_rx         BIGINT,
-    red_tx         BIGINT,
-    PRIMARY KEY ((empresa_id, ordenador_uuid, fecha), ts)
-) WITH CLUSTERING ORDER BY (ts DESC)
-   AND default_time_to_live = 2592000
-   AND comment = 'Serie temporal de métricas de hardware — TTL 30 días';
+-- ─── ordenadores ────────────────────────────────────────────────────────────
+-- Inventario de ordenadores. codigo_licencia traza qué licencia (MySQL) registró
+-- la máquina. `nombre` = usuario.nombre_ordenador en MySQL.
+CREATE TABLE IF NOT EXISTS ordenadores (
+    empresa_id      bigint,
+    nombre          text,
+    procesador      text,
+    ram             text,
+    almacenamiento  text,
+    ultima_vez      timestamp,
+    codigo_licencia text,
+    PRIMARY KEY ((empresa_id), nombre)
+);
 
--- ─── metricas_ultimo ─────────────────────────────────────────────────────────
--- Caché del último valor conocido por ordenador.
--- Usado por el dashboard "live": una sola lectura por (empresa, ordenador).
--- Sin TTL: se sobreescribe con cada nueva muestra (UPSERT).
-
-CREATE TABLE IF NOT EXISTS metricas_ultimo (
-    empresa_id     TEXT,
-    ordenador_uuid TEXT,
-    ts             TIMESTAMP,
-    cpu_uso        FLOAT,
-    cpu_temp       FLOAT,
-    ram_uso        FLOAT,
-    ram_total      FLOAT,
-    disco_uso      FLOAT,
-    disco_total    FLOAT,
-    red_rx         BIGINT,
-    red_tx         BIGINT,
-    PRIMARY KEY (empresa_id, ordenador_uuid)
-) WITH comment = 'Último valor conocido por ordenador — caché para dashboard live';
+-- ─── mediciones ────────────────────────────────────────────────────────────
+-- Serie temporal de telemetría. El servicio Java escribe aquí con stress_score
+-- ya calculado. ram/almacenamiento desnormalizados para rankings en Grafana sin JOINs.
+CREATE TABLE IF NOT EXISTS mediciones (
+    empresa_id      bigint,
+    nombre          text,
+    ts              timestamp,
+    cpu_percent     double,
+    ram_percent     double,
+    disco_percent   double,
+    temperatura     double,
+    bateria_percent double,
+    stress_score    double,
+    ram             text,
+    almacenamiento  text,
+    PRIMARY KEY ((empresa_id), ts, nombre)
+) WITH CLUSTERING ORDER BY (ts DESC, nombre ASC);
