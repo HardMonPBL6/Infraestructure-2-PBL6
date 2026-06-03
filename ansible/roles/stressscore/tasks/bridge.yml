@@ -16,5 +16,6 @@
       CASSANDRA_CONTACT_POINTS: "{{ bridge_cassandra_contact_points }}"
       CASSANDRA_LOCAL_DC: "{{ bridge_cassandra_local_dc }}"
       CASSANDRA_KEYSPACE: "{{ bridge_cassandra_keyspace }}"
+      HDFS_URI: "{{ bridge_hdfs_uri | default('') }}"
       SEEDS: "{{ bridge_seeds }}"
       JVM_OPTS: "-Xmx{{ bridge_heap_mb }}m"
