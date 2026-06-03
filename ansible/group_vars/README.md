@@ -23,7 +23,6 @@ de todos los grupos a los que pertenece un host, así que:
    | Schema Registry | 768 MB | gcp-a node-01 (sin Java) |
    | **subtotal**| **~8 GB** | + ~1.5 GB SO + ~6 GB page cache |
    | HBase RS    | 3 GB   | gcp-b ×3         |
-   | Elasticsearch | 3 GB | gcp-b node-03    |
    | MySQL (buffer pool) | 2 GB | gcp-b node-02 |
 
 3. **Identidad determinista.** `broker.id`, `myid`, etc. se derivan de la

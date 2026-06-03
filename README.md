@@ -6,7 +6,7 @@ Provisiona la infraestructura de WebHardMon repartida en **tres nubes** unidas p
 |---|---|---|---|
 | `local` | Proxmox VE (LXC) | `nifi`, `harbor` | `hdfs ×3`, `mapreduce` |
 | `gcp-a` | GCE (`europe-southwest1`) | `node-01`: kafka+zookeeper+cassandra+schema_registry | `node-02`/`node-03`: kafka+zookeeper+cassandra+java |
-| `gcp-b` | GCE (`europe-west1`)     | `node-01`: hbase+grafana | `node-02`: hbase+mysql · `node-03`: hbase+elasticsearch |
+| `gcp-b` | GCE (`europe-west1`)     | `node-01`: hbase+grafana+matomo+web | `node-02`: hbase+mysql · `node-03`: hbase |
 
 > **Coste GCP — 3 VMs spot compartidas por nube.** En vez de una VM por nodo de cluster (17 VMs on-demand), cada nube GCP usa **3 `e2-standard-4` Spot** (`gcp_spot=true`, `DELETE` al interrumpirse) que co-alojan servicios como contenedores, manteniendo una instancia de cada servicio por VM (clusters de 3 nodos sobre 3 hosts). Reparto en `var.gcp_a_nodes` / `var.gcp_b_nodes`. Spot+DELETE borra el disco al ser interrumpida → los despliegues Ansible deben ser idempotentes y los datos reconstruibles. La nube local no cambia (un LXC por nodo).
 
@@ -192,6 +192,6 @@ Opcionales con default razonable: regiones/zonas GCP, CIDRs, `wg_port` / `wg_vpn
 
 ## Lo que NO hace este repo
 
-- No instala/configura Kafka, HDFS, NiFi, Cassandra, HBase, MySQL, Java/RMI, Elasticsearch, Grafana, Harbor, Schema Registry, `cloudflared` — eso es Ansible.
+- No instala/configura Kafka, HDFS, NiFi, Cassandra, HBase, MySQL, Java/RMI, Grafana, Matomo, Harbor, Schema Registry, `cloudflared` — eso es Ansible.
 - No abre SSH a Internet. Cualquier acceso administrativo va por la malla WireGuard.
 - No configura el nodo de gestión ni el gateway local — esos peers WireGuard se montan a mano con las IPs de `tofu output wireguard_gateway_ips`.

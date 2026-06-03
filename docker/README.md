@@ -15,8 +15,8 @@ permiso de pull a las VMs; las **imágenes** las hacéis vosotros aquí.
 | Nube | Registro | Servicios |
 |------|----------|-----------|
 | local | Harbor (`$HARBOR_HOST/webhardmon`) | nifi, hdfs, mapreduce |
-| gcp-a | Artifact Registry A | kafka, zookeeper, cassandra, java-stressscore |
-| gcp-b | Artifact Registry B | hbase, mysql, elasticsearch, grafana |
+| gcp-a | Artifact Registry A | kafka, zookeeper, cassandra, schema-registry, java-stressscore, stressscore-bridge |
+| gcp-b | Artifact Registry B | hbase, mysql, grafana, matomo, web |
 
 Las URLs coinciden con `container_registry` de los `group_vars` de Ansible, así
 que lo que subáis aquí es lo que se despliega allí.
@@ -28,9 +28,9 @@ que lo que subáis aquí es lo que se despliega allí.
 2. **Extender una imagen oficial** + vuestra config. Ej.: `nifi/`, `cassandra/`.
 3. **Servicio sin imagen oficial** → construir desde el tarball. Ej.: `hbase/`.
 
-Para un servicio que uséis tal cual (p.ej. Grafana, MySQL, Elasticsearch), **no
+Para un servicio que uséis tal cual (p.ej. una imagen oficial sin extender), **no
 hace falta Dockerfile**: apuntad el `*_image` del group_vars a la imagen upstream
-(`grafana/grafana:11.2.0`, etc.) y omitidlo del build.
+y omitidlo del build.
 
 ## Uso
 

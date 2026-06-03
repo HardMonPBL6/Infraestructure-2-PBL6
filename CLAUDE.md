@@ -4,17 +4,21 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 ## What This Repo Does
 
-OpenTofu (Terraform-compatible) infrastructure-as-code for **WebHardMon** — a distributed big data platform spanning three cloud environments connected via a WireGuard VPN mesh:
+OpenTofu (Terraform-compatible) infrastructure-as-code for **WebHardMon** — a distributed big-data telemetry platform spanning three cloud environments connected via a WireGuard VPN mesh. It follows a **Lambda Architecture** (streaming hot path + batch cold→served path).
 
 | Cloud | Platform | Services |
 |-------|----------|----------|
-| `local` | Proxmox VE (LXC containers) | NiFi, HDFS ×3, MapReduce, Harbor |
-| `gcp-a` | GCP europe-southwest1 | Kafka ×3, ZooKeeper ×3, Schema Registry, Java/RMI ×2, Cassandra ×3 |
-| `gcp-b` | GCP europe-west1 | MySQL, HBase ×3, Elasticsearch, Grafana |
+| `local` | Proxmox VE (LXC containers) | NiFi + cloudflared, HDFS ×3, MapReduce, Harbor |
+| `gcp-a` | GCP europe-southwest1 | Kafka ×3, ZooKeeper ×3, Schema Registry, Cassandra ×3, Java/RMI ×2, Java bridge |
+| `gcp-b` | GCP europe-west1 | HBase ×3 (Master+RS+REST), MySQL, Grafana, Matomo, Web panel |
 
-**GCP cost model — 3 shared spot VMs per cloud.** Each GCP cloud runs **3 `e2-standard-4` Spot VMs** (`gcp_spot = true`, `instance_termination_action = DELETE`) that co-locate services as containers, keeping one instance of each clustered service per node (real 3-node distributed cluster across 3 hosts). The per-node layout lives in `var.gcp_a_nodes` / `var.gcp_b_nodes`; machine type, disk, spot and termination action are `var.gcp_default_machine_type`, `var.gcp_node_disk_gb`, `var.gcp_spot`, `var.gcp_spot_termination_action`. Because Spot+DELETE drops the boot disk on preemption, Ansible deploys must be idempotent and stateful data is rebuildable. The local Proxmox cloud is unchanged (one LXC per node).
+> **Scope:** this repo is **infra only** (networks, VMs/CTs, registries, identities, WireGuard config, Cloudflare tunnel control plane). Installing/configuring the services (Kafka, HDFS, NiFi, HBase, …) is **Ansible's** job — `tofu apply` generates `ansible/inventory.ini` at the end. The service container **images** are built from `docker/` (and the app submodules), not by Terraform.
 
-**WireGuard VPN — inter-cloud mesh.** One gateway per cloud handles all inter-cloud traffic:
+> **Elasticsearch was removed** from the final architecture. `var.gcp_b_nodes` node-03 runs HBase RS only; there is no `elasticsearch` role and `site.yml`'s import is commented out. `ansible/group_vars/elasticsearch.yml` is an inert leftover. See `SERVICES-DEPLOY.md §8`.
+
+**GCP cost model — 3 shared spot VMs per cloud.** Each GCP cloud runs **3 `e2-standard-4` Spot VMs** (`gcp_spot = true`, `gcp_spot_termination_action = DELETE`) that co-locate services as containers, keeping one instance of each clustered service per node (real 3-node distributed cluster across 3 hosts, instead of one VM per cluster node). The per-node layout lives in `var.gcp_a_nodes` / `var.gcp_b_nodes`; machine type, disk, spot and termination action are `var.gcp_default_machine_type`, `var.gcp_node_disk_gb`, `var.gcp_spot`, `var.gcp_spot_termination_action`. Because Spot+DELETE drops the boot disk on preemption, Ansible deploys must be idempotent and stateful data is rebuildable. The local Proxmox cloud is unchanged (one LXC per node).
+
+**WireGuard VPN — inter-cloud mesh.** One gateway per cloud handles all inter-cloud traffic and admin SSH:
 
 | Gateway | WireGuard VPN IP | GCP internal IP | External IP |
 |---------|-----------------|-----------------|-------------|
@@ -23,20 +27,17 @@ OpenTofu (Terraform-compatible) infrastructure-as-code for **WebHardMon** — a 
 | GCP-A node-01 | `10.0.0.20` | `10.20.1.10` | static (`google_compute_address`) |
 | GCP-B node-01 | `10.0.0.30` | `10.30.1.10` | static (`google_compute_address`) |
 
-Private nodes (node-02/03) do **not** run WireGuard — they get a systemd route service that sends inter-cloud traffic through their cloud's gateway. Ansible reaches them via their static GCP internal IPs (`10.20.2.11`, `10.20.2.12`, etc.) routed through the gateway. Static external IPs are reserved via `google_compute_address` so WireGuard peer configs survive Spot VM recreation. Gateways are configured at `cloud-init/wireguard.yaml.tftpl`.
+Only each cloud's **public node-01** runs WireGuard (gateway). Private nodes (node-02/03) do **not** run WireGuard — they get a systemd one-shot route service that sends inter-cloud traffic through their cloud's gateway. Ansible reaches them via their static GCP internal IPs (`10.20.2.11`, `10.20.2.12`, etc.) routed through the gateway. The **local** CTs don't run WireGuard either: the manually-managed local gateway (`10.0.0.10`) advertises the local subnets (`10.10.2.0/24`, `10.10.3.0/24`) to the mesh. Static external IPs are reserved via `google_compute_address` so WireGuard peer configs survive Spot VM recreation. Gateway config is templated in `cloud-init/wireguard.yaml.tftpl`.
 
-Keys are generated manually (`wg genkey | tee private.key | wg pubkey > public.key`) and stored in `terraform.tfvars` (gitignored). After `tofu apply`, run `tofu output wireguard_gateway_ips` to get the GCP static IPs needed to configure the local gateway and management node peers.
+Keys are generated manually (`wg genkey | tee private.key | wg pubkey > public.key`) and stored in `terraform.tfvars` (gitignored). After `tofu apply`, run `tofu output wireguard_gateway_ips` to get the GCP static IPs needed to configure the local gateway and management node peers by hand.
 
-**MySQL — application database.** MySQL in GCP-B (`node-02`) is the application database for the WebHardMon business layer. Schema (`docker/mysql/init.sql`):
-- `empresa` — tenant root
-- `administrador` — web panel users (bcrypt-hashed passwords)
-- `licencia` — API keys bound to a specific laptop hostname (`portatil`); the collector sends `(codigo, portatil)` and NiFi validates `activa = 1` via JDBC LookupService before routing to Kafka
+**MySQL — application database.** MySQL in GCP-B (`node-02`, private subnet, host port `3307`) is the application database for the WebHardMon business layer. Schema (`docker/mysql/init.sql`): `empresa` (tenant root), `administrador` (web panel users, bcrypt passwords), `usuario`, `licencia` (API keys bound to a laptop hostname). NiFi validates `(codigo, portatil)` via a JDBC LookupService against the `licencia_lookup` view before routing to Kafka. Separate from Grafana's and NiFi's own internal auth.
 
-This is separate from Grafana's own internal auth and NiFi's own internal auth.
-
-**Avro — Confluent Schema Registry.** Avro is the on-the-wire format for Kafka. A Confluent Schema Registry singleton runs on GCP-A `node-01` (co-located with Kafka, on the node that has no Java so RAM is free). NiFi serializes records against it (`ConfluentSchemaRegistry` controller service → `nifi_schema_registry_url`) and the Java consumer deserializes via `KafkaAvroDeserializer` (`javaapp_schema_registry_url`). Schemas are versioned and stored in Kafka's internal `_schemas` topic; compatibility is `BACKWARD` so the collector's schema can evolve without breaking deployed consumers. NiFi (local cloud) reaches the registry over WireGuard via node-01's gateway IP.
+**Avro — Confluent Schema Registry.** Avro is the on-the-wire format for Kafka. A Confluent Schema Registry singleton runs on GCP-A `node-01` (co-located with Kafka, on the node that has no Java so RAM is free). NiFi serializes records against it; the Java bridge deserializes via `KafkaAvroDeserializer`. Compatibility is `BACKWARD` so the collector's schema can evolve without breaking deployed consumers. NiFi (local cloud) reaches the registry over WireGuard via node-01's gateway IP (`10.0.0.20:8081`).
 
 **External ingest — Cloudflare Tunnel.** The collector runs on **end-user PCs outside all three clouds**, so it can't reach NiFi via WireGuard (not peers) or the LAN (behind home NAT). `modules/cloudflare-tunnel` publishes NiFi's ingest listener at `ingest.<zone>` via a named Cloudflare Tunnel: `cloudflared` runs on the NiFi CT and dials **out** to Cloudflare (no port-forward, no inbound firewall). **Cloudflare Access** with a service token authenticates collectors at the edge. WireGuard carries only the inter-cloud mesh + admin SSH; Cloudflare Tunnel handles external→ingest only. Gated by `var.cloudflare_enabled`; outputs `cloudflared_tunnel_token` (for Ansible) + `collector_access_client_id/secret` (for the collector installer).
+
+**Lambda Architecture data flow.** Collector → Cloudflare Tunnel → NiFi (validate licence, serialize Avro) → Kafka. From Kafka the **Java bridge** (gcp-a node-02) computes StressScore via RMI and writes both the **hot path** (Cassandra, recent data → Grafana) and the **cold path** (HDFS Parquet, local cloud). An hourly MapReduce job on the HDFS NameNode aggregates Parquet → **HBase `webhardmon_hourly`** (the served/batch layer → Grafana REST). See `MAPREDUCE-HBASE.md`.
 
 ## Common Commands
 
@@ -47,16 +48,18 @@ tofu validate              # validate configuration
 tofu plan                  # preview changes
 tofu apply                 # provision all three clouds + generate ansible/inventory.ini
 tofu output                # show outputs after apply
-tofu output wireguard_gateway_ips  # get GCP static IPs to configure external WireGuard peers
+tofu output wireguard_gateway_ips  # GCP static IPs to configure external WireGuard peers
 tofu destroy               # tear down all resources
 ```
 
-To target a single resource or module:
+Target a single resource or module:
 ```bash
-tofu plan -target=module.gcp_a_vm
-tofu apply -target=module.proxmox_lxc["nifi"]
+tofu plan  -target=module.gcp_a_vm
+tofu apply -target=module.local_ct["nifi-01"]
 tofu apply -target=google_compute_address.gcp_a_gateway
 ```
+
+> **Ansible runs in WSL**, not native Windows — `ansible-playbook`/`python` live there. Invoke via `wsl -e bash -lc "..."`. OpenTofu/`tofu` run natively on Windows (PowerShell examples in `README.md`).
 
 ## Required Setup Before `tofu init`
 
@@ -65,12 +68,13 @@ Copy and fill in the example vars file:
 cp terraform.tfvars.example terraform.tfvars
 ```
 
-Mandatory variables (no defaults — `tofu plan` will fail without them):
+Mandatory variables (no defaults — `tofu plan` fails without them):
 - `proxmox_api_token`, `proxmox_ssh_private_key`
-- `gcp_a_project_id`, `gcp_b_project_id` + corresponding credential JSON paths
+- `gcp_a_project_id`, `gcp_b_project_id` (+ optional `gcp_*_credentials_file` paths, else ADC)
 - `wg_gcp_a_private_key`, `wg_gcp_a_public_key`, `wg_gcp_b_private_key`, `wg_gcp_b_public_key`
 - `wg_mgmt_public_key`, `wg_local_gw_public_key`
 - `local_ct_ssh_pubkey` — injected into every VM/CT for Ansible access
+- If `cloudflare_enabled = true` (default): `cloudflare_api_token`, `cloudflare_account_id`, `cloudflare_zone_id`, `cloudflare_zone_name`
 
 Generate WireGuard keypairs before filling `terraform.tfvars`:
 ```bash
@@ -88,81 +92,67 @@ See `bootstrap/README.md` for how to create the Proxmox API token and GCP servic
 
 ```
 modules/
-  proxmox-lxc/       # LXC container with dual-NIC support and post-start hookscript
+  proxmox-lxc/       # unprivileged LXC, nesting, dual-NIC, post-start hookscript
   gcp-network/       # VPC + 2 subnets + Cloud Router + Cloud NAT + firewall rules
   gcp-vm/            # GCE Ubuntu 24.04, shielded VM, static internal IP, cloud-init
-  gcp-registry/      # Artifact Registry (Docker) per GCP project
+  gcp-registry/      # Artifact Registry (Docker) per GCP project, repo "<prefix>-docker"
   cloudflare-tunnel/ # Named tunnel + DNS + Access (service token) for external ingest
 ```
 
-`main.tf` is the orchestration layer. It also creates `google_compute_address` resources for the GCP gateway static IPs before the VMs.
-
-### WireGuard Key Management
-
-Private keys for GCP gateways are passed as sensitive variables → embedded in `wg0.conf` via `cloud-init/wireguard.yaml.tftpl` at VM creation time. The management node and local gateway are configured manually using their own private keys and the GCP static IPs from `tofu output wireguard_gateway_ips`.
-
-`lifecycle { ignore_changes = [metadata["user-data"]] }` in `gcp-vm` means WireGuard config changes do **not** trigger VM replacement — update it by re-running cloud-init or SSHing in.
+`main.tf` is the orchestration layer (order: WireGuard static IPs → local CTs + hookscripts + Cloudflare tunnel → GCP-A network/SA/VMs/registry → GCP-B same). `outputs.tf` builds the Ansible inventory.
 
 ### IP Addressing
 
 Cloud subnets follow `10.<cloud>.<tier>.0/24`:
 - `10.10.x` = local (Proxmox), `10.20.x` = gcp-a, `10.30.x` = gcp-b
-- `.1` = public subnet, `.2` = private subnet
+- `.1` = public subnet, `.2`/`.3` = private subnet(s). Defaults: local public `10.10.2.0/24` (`vmbr1`), local private `10.10.3.0/24` (`vmbr2`); gcp-a `10.20.1/2`; gcp-b `10.30.1/2`.
 
 GCP VMs get **static internal IPs** at offset +10 from the subnet base (`cidrhost(cidr, i+10)`):
 - GCP-A: `10.20.1.10` (node-01/gateway), `10.20.2.11` (node-02), `10.20.2.12` (node-03)
 - GCP-B: `10.30.1.10` (node-01/gateway), `10.30.2.11` (node-02), `10.30.2.12` (node-03)
 
-WireGuard VPN subnet: `10.0.0.0/24` (var `wg_vpn_cidr`). Gateway IPs are at offsets 1 (mgmt), 10 (local), 20 (gcp-a), 30 (gcp-b).
+WireGuard VPN subnet: `10.0.0.0/24` (`var.wg_vpn_cidr`), gateways at offsets 1 (mgmt), 10 (local), 20 (gcp-a), 30 (gcp-b). LXC containers get static IPs derived from the Proxmox VMID (`<cidr>.<vmid>`, `var.local_vmid_start` default 110).
 
-LXC containers get static IPs derived from the Proxmox VMID (`<cidr>.<vmid>`).
+> **The HDFS cluster lives on the `10.10.1.x` Proxmox management LAN** and is deployed by a **separate** two-phase OpenTofu project under `HDFS/` (NameNode `10.10.1.21`, DataNodes `.22`/`.23`; Harbor at `10.10.1.50:5000`). The root repo's `topology.hdfs`/`mapreduce` CTs (private subnet) and the static `[mapreduce]` inventory entry (`hdfs-namenode 10.10.1.21`) reflect this split — see `HDFS/README.md`.
+
+### WireGuard Key Management
+
+Private keys for GCP gateways are passed as sensitive variables → embedded in `wg0.conf` via `cloud-init/wireguard.yaml.tftpl` at VM creation. The management node and local gateway are configured manually using their own private keys + the GCP static IPs from `tofu output wireguard_gateway_ips`. The `gcp-vm` module's `ignore_changes` on user-data means WireGuard config changes do **not** trigger VM replacement — update by re-running cloud-init or SSHing in.
 
 ### Ansible Inventory
 
-`tofu apply` generates `ansible/inventory.ini` (from `ansible/inventory.tmpl`) with hosts grouped by role and by cloud. `ansible_host` values:
-- Local CTs: LAN IP
-- GCP gateway nodes (node-01): WireGuard VPN IP (`10.0.0.20` / `10.0.0.30`)
-- GCP private nodes (node-02/03): GCP internal IP, reachable via the gateway's WireGuard route
-
-Because GCP nodes are shared, the generated inventory places one node in **multiple** `[role]` groups at once (e.g. gcp-a node-02 is in `[kafka]`, `[zookeeper]`, `[cassandra]`, `[java]`). The template also emits `[cloud_*]` groups and a `[webhardmon:children]` group spanning all roles.
+`tofu apply` generates `ansible/inventory.ini` (from `ansible/inventory.tmpl`) with hosts grouped by role and by cloud. `ansible_host`: local CTs → LAN IP; GCP gateway nodes (node-01) → WireGuard IP (`10.0.0.20`/`10.0.0.30`); GCP private nodes (node-02/03) → GCP internal IP (reached via the gateway route). Because GCP nodes are shared, a node appears in **multiple** `[role]` groups at once (e.g. gcp-a node-02 ∈ `[kafka]`, `[zookeeper]`, `[cassandra]`, `[java]`, `[java_bridge]`). The template also emits `[cloud_*]` groups, a `[webhardmon:children]` group spanning all roles, and a static `[mapreduce]` host for the HDFS NameNode.
 
 ### Ansible group_vars (config layer)
 
-`ansible/group_vars/` holds the service config Ansible merges per host. Because a shared node belongs to several role groups, Ansible **merges** the group_vars of every group it's in. Key conventions (see `ansible/group_vars/README.md`):
+`ansible/group_vars/` holds the service config Ansible merges per host. Because a shared node belongs to several role groups, Ansible **merges** the group_vars of every group it's in. Conventions (`ansible/group_vars/README.md`):
+- **Everything namespaced per service** (`kafka_*`, `cassandra_*`, …) so co-located services never collide during the merge.
+- **Fixed RAM budget.** Heaps are capped so the densest node fits in 16 GB (`e2-standard-4`) with page-cache headroom — gcp-a node-02/03 runs Kafka 2 GB + ZooKeeper 512 MB + Cassandra 4 GB + Java/RMI 1.5 GB (~8 GB); gcp-b caps HBase RS 3 GB + MySQL buffer pool 2 GB. Schema Registry (768 MB) sits on node-01 where there's no Java. Don't raise a heap without re-checking the node total (`group_vars/all.yml`: `node_mem_total_mb`).
+- **Deterministic identity.** `broker.id`, `myid`, etc. derive from the host's index within its group. The inventory is stable (`node-01/02/03`), so a spot-preempted node rebuilds with the **same** id and rejoins the cluster.
+- Local single-service roles (nifi, hdfs, mapreduce, harbor) carry their own group_vars without co-location constraints.
 
-- **Everything is namespaced per service** (`kafka_*`, `cassandra_*`, `zookeeper_*`, …) so co-located services never collide on a variable name during the merge.
-- **Fixed RAM budget.** Heaps are capped so the densest node fits in 16 GB (`e2-standard-4`) with headroom for page cache — gcp-a node-02/03 runs Kafka 2 GB + ZooKeeper 512 MB + Cassandra 4 GB + Java/RMI 1.5 GB (~8 GB), gcp-b caps HBase RS 3 GB, Elasticsearch 3 GB, MySQL buffer pool 2 GB. Schema Registry (768 MB) sits on node-01 where there's no Java. Don't raise a heap without re-checking the node's total.
-- **Deterministic identity.** `broker.id`, `myid`, etc. derive from the host's index within its group (`groups['kafka'].index(...)`). The inventory is stable (`node-01/02/03`), so a node deleted by spot preemption rebuilds with the **same** id and rejoins the cluster.
-- Local single-service roles (nifi, hdfs, mapreduce, harbor) carry their own group_vars without these co-location constraints.
+### Deploy order (Ansible)
+
+`ansible/site.yml` orchestrates: **security first** (`security.yml` hardens SSH 22→`var.ssh_port` 2222 — must run before everything else), then base services in dependency order (zookeeper → kafka → schema_registry; cassandra; mysql; nifi; grafana; matomo), then apps (stressscore, web). `hbase.yml` and `mapreduce.yml` (batch layer, need HDFS) are committed but commented out of `site.yml` — run them explicitly. Full guides: `DEPLOY.md` (end-to-end), `SERVICES-DEPLOY.md` (base services), `MAPREDUCE-HBASE.md` (batch).
 
 ### Security hardening (`ansible/security.yml`)
 
-`ansible/security.yml` + `roles/security` apply a baseline hardening pass to **every** WebHardMon host (`hosts: webhardmon`): SSH lockdown, `pam_pwquality` password policy, and Fail2ban. It's the corrected `security-playbook-corregido.docx` adapted to this repo's constraints — run it **before** the service playbooks. Key adaptations:
+`roles/security` applies a baseline to **every** host (`hosts: webhardmon`): SSH lockdown, `pam_pwquality`, Fail2ban.
+- **SSH via drop-in** `/etc/ssh/sshd_config.d/20-security.conf` (validated with `sshd -t` before write).
+- **Port 22 → 2222 with auto-detection.** Nodes boot on 22 (cloud-init); `security.yml`'s `pre_tasks` probe 2222 then 22 and set `ansible_port` per host, so it's re-runnable across the spot-rebuild cycle. Other playbooks assume the steady-state 2222 from the inventory. The GCP firewall needs no change (all TCP from the WireGuard mesh is allowed).
+- **Fail2ban `ignoreip`** (`group_vars/all.yml`) covers loopback + WireGuard mesh + each cloud's `/16`, so the control node never bans itself.
 
-- **SSH via drop-in, not `sshd_config`.** Settings land in `/etc/ssh/sshd_config.d/20-security.conf` (validated with `sshd -t -f` before write) so they reinforce — not fight — cloud-init's `10-webhardmon.conf`. `Protocol 2` from the original is dropped (obsolete on OpenSSH ≥7.6 / Ubuntu 24.04).
-- **SSH port 22 → 2222, with auto-detection.** Nodes boot on 22 (cloud-init); the playbook moves them to `var.ssh_port` (default 2222) and emits `ansible_port` into the inventory. `security.yml`'s `pre_tasks` probe `2222` then `22` and set `ansible_port` per host, so it's re-runnable across the spot-rebuild cycle (a preempted node comes back on 22, gets re-hardened to 2222). Other playbooks assume the steady-state 2222 from the inventory. The GCP firewall needs **no** change — it already allows all TCP from the WireGuard mesh (`gcp-network`: *SSH va por WireGuard*), so 2222 is reachable.
-- **Fail2ban `ignoreip` covers the control node.** Set in `group_vars/all.yml`: `127.0.0.1/8 ::1` + the WireGuard mesh (`10.0.0.0/24`) + each cloud's `/16` (`10.10/10.20/10.30`). Ansible reaches GCP from the mesh and local CTs from the LAN — without this you can ban yourself. Add your management laptop's LAN IP here if you drive the local CTs from a different subnet.
-
-Tunables are namespaced `security_*` (role `defaults/main.yml`, overridable in `group_vars/all.yml`). Run order:
-```bash
-ansible-playbook -i inventory.ini security.yml          # baseline first
-ansible-playbook -i inventory.ini security.yml --check   # dry run
-```
-If you change `var.ssh_port`, change `security_ssh_port` in `group_vars/all.yml` to match (the inventory side comes from Terraform, the sshd side from Ansible).
+If you change `var.ssh_port`, also change `security_ssh_port` in `group_vars/all.yml` (inventory side = Terraform, sshd side = Ansible).
 
 ### Provisioning Scripts
 
-- `cloud-init/wireguard.yaml.tftpl` — GCP VM user-data: hostname, `ubuntu` user, SSH hardening, WireGuard install. Gateway nodes get a full `wg0.conf`; private nodes get a systemd one-shot service that adds static routes via their gateway.
-- `cloud-init/lxc-bootstrap.sh.tftpl` — Proxmox hookscript (runs post-start, idempotent): installs openssh + python3, creates `ubuntu` user, injects SSH pubkey, hardens SSH.
+- `cloud-init/wireguard.yaml.tftpl` — GCP VM user-data: hostname, `ubuntu` user, SSH hardening, WireGuard. Gateway nodes get a full `wg0.conf`; private nodes get a systemd one-shot adding static routes via their gateway.
+- `cloud-init/lxc-bootstrap.sh.tftpl` — Proxmox hookscript (post-start, idempotent): installs openssh + python3, creates `ubuntu`, injects SSH pubkey, hardens SSH.
 
 ### Container Images
 
-This repo provisions **registries** (Artifact Registry per GCP cloud + Harbor CT for local) but not the images. Dockerfiles + `build-and-push.sh` live in `docker/`. VMs pull using their service account + the gcloud credential helper. Pin a real `IMAGE_TAG` (not `latest`) so spot-rebuilt nodes get the same image.
-
-### MySQL Init Schema
-
-`docker/mysql/init.sql` is mounted at `/docker-entrypoint-initdb.d/` and runs once at container creation. Tables: `empresa`, `administrador` (bcrypt passwords), `licencia` (API keys per laptop). The Ansible MySQL role copies this file to the host before starting the container.
+This repo provisions **registries** (Artifact Registry per GCP cloud + Harbor CT for local) but not the images. Dockerfiles + `build-and-push.sh` live in `docker/`; the Java apps (`java-stressscore`, `stressscore-bridge`, `web`) build from the `services/stressscore` and `services/web` git submodules (`git submodule update --init --recursive`). `build-and-push.sh` maps each service to its cloud's registry. VMs pull using their service account + the gcloud credential helper. Pin a real `IMAGE_TAG` (not `latest`) so spot-rebuilt nodes get the same image.
 
 ## State Backend
 
-`backend.tf` defaults to local state. A commented-out GCS backend block is present for switching to remote state when needed.
+`backend.tf` defaults to local state (single management node). A commented-out GCS backend block (`gs://webhardmon-tofu-state`) is present for switching to remote state. The `HDFS/` sub-project uses GCS state by default — create the bucket first or comment its `backend "gcs"` block.

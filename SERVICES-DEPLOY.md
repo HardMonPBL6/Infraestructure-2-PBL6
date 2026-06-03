@@ -30,7 +30,7 @@ Cada nube tiene dos redes con propósitos distintos:
 │    node-01  10.30.1.10  WG: 10.0.0.30  →  Grafana, Matomo, HBase M.    │
 │  Red datos  (subred privada):    10.30.2.x  ← node-02/03               │
 │    node-02  10.30.2.11           →  MySQL, HBase RS                     │
-│    node-03  10.30.2.12           →  Elasticsearch, HBase RS             │
+│    node-03  10.30.2.12           →  HBase RS                            │
 └──────────────────────────────────────────────────────────────────────────┘
 ```
 
@@ -406,12 +406,12 @@ curl http://<ip-nifi>:8080/nifi/             # NiFi UI: HTTP 200
 
 ---
 
-## 8. Pendiente — Elasticsearch
+## 8. Elasticsearch — eliminado de la arquitectura final
 
-Elasticsearch (`ansible/group_vars/elasticsearch.yml` existe) no tiene rol ni Dockerfile aún. Cuando se cree:
+Elasticsearch **se ha retirado** de la arquitectura desplegada: `var.gcp_b_nodes` ya no lo asigna a ningún nodo (gcp-b node-03 corre solo HBase RS) y no existe rol ni Dockerfile. Quedan algunos restos inertes que **no afectan** al despliegue:
 
-- **Nodo**: gcp-b node-03 (subred privada, co-alojado con HBase RS).
-- **Imagen**: `docker.elastic.co/elasticsearch/elasticsearch:8.x` (no requiere Dockerfile custom en principio).
-- **Config**: single-node (`discovery.type: single-node`), heap 3072 MB, bind a `inventory_hostname`.
-- **Red**: puerto 9200 accesible desde gcp-b VPC y WireGuard routing. Puerto 9300 (inter-nodo) no necesario en single-node.
-- **Datasource Grafana**: ya está configurado en `datasources.yml.j2` pero comentado hasta que se despliegue.
+- `ansible/group_vars/elasticsearch.yml` — fichero de config huérfano (ningún host pertenece al grupo `[elasticsearch]`, así que no se aplica).
+- `ansible/site.yml` — `import_playbook: elasticsearch.yml` está **comentado**.
+- El datasource de Grafana en `datasources.yml.j2` está comentado.
+
+Si en el futuro se reintroduce, habría que añadir `elasticsearch` a los `roles` de algún nodo en `var.gcp_b_nodes`, crear `roles/elasticsearch` + `ansible/elasticsearch.yml`, y descomentar las líneas anteriores. Imagen sugerida: `docker.elastic.co/elasticsearch/elasticsearch:8.x` en modo single-node (`discovery.type: single-node`, heap ≤ 3072 MB).
