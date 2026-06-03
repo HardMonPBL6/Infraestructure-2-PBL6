@@ -1,0 +1,51 @@
+---
+# roles/schema_registry/tasks/main.yml
+#
+# Despliega Confluent Schema Registry (singleton, gcp-a node-01).
+#
+# Red de gestión vs datos:
+#   - node-01 es la VM de gestión (subred pública 10.20.1.x, gateway WireGuard).
+#   - Schema Registry escucha en 0.0.0.0:8081 → accesible desde:
+#       · NiFi (nube local) vía WireGuard: http://10.0.0.20:8081
+#       · Java bridge (gcp-a node-02) vía VPC: http://10.20.1.10:8081
+#       · Red de gestión: acceso admin desde el nodo de gestión (10.0.0.1)
+#   - El registro de esquemas Avro vive en el topic _schemas de Kafka (gcp-a).
+#   - Compatibilidad BACKWARD: el collector puede evolucionar el schema sin
+#     romper a los consumidores Java ya desplegados.
+
+- name: Levantar Confluent Schema Registry
+  community.docker.docker_container:
+    name: schema-registry
+    image: "{{ schema_registry_image }}"
+    pull: true
+    restart_policy: unless-stopped
+    network_mode: host
+    env:
+      # Escucha en todas las interfaces (gestión + datos) en el puerto estándar.
+      SCHEMA_REGISTRY_LISTENERS: "{{ schema_registry_listeners }}"
+      # Hostname anunciado = IP interna GCP-A del nodo (alcanzable desde gcp-a VPC
+      # y desde otras nubes vía WireGuard routing a 10.20.1.10).
+      SCHEMA_REGISTRY_HOST_NAME: "{{ schema_registry_host_name }}"
+      # Kafka bootstrap: IPs internas de los 3 brokers gcp-a.
+      SCHEMA_REGISTRY_KAFKASTORE_BOOTSTRAP_SERVERS: "{{ schema_registry_kafka_bootstrap }}"
+      SCHEMA_REGISTRY_KAFKASTORE_TOPIC_REPLICATION_FACTOR: "3"
+      SCHEMA_REGISTRY_SCHEMA_COMPATIBILITY_LEVEL: "{{ schema_registry_compatibility }}"
+      SCHEMA_REGISTRY_HEAP_OPTS: "-Xms{{ schema_registry_heap_mb }}m -Xmx{{ schema_registry_heap_mb }}m"
+    state: started
+
+- name: Esperar a que Schema Registry esté disponible (puerto {{ schema_registry_port }})
+  wait_for:
+    host: "127.0.0.1"
+    port: "{{ schema_registry_port }}"
+    timeout: 60
+
+- name: Verificar API de Schema Registry
+  uri:
+    url: "http://127.0.0.1:{{ schema_registry_port }}/subjects"
+    method: GET
+    status_code: 200
+  register: sr_check
+  retries: 5
+  delay: 5
+  until: sr_check.status == 200
+  changed_when: false

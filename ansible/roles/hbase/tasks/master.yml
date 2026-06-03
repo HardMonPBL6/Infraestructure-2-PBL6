@@ -1,0 +1,18 @@
+---
+# Levanta el contenedor HMaster (node-01 del grupo [hbase]).
+# Co-existe con RegionServer en el mismo nodo.
+
+- name: Levantar HBase Master
+  community.docker.docker_container:
+    name: "{{ hbase_master_container }}"
+    image: "{{ hbase_image }}"
+    pull: true
+    restart_policy: unless-stopped
+    network_mode: host
+    env:
+      HBASE_ROLE: "master"
+      JAVA_TOOL_OPTIONS: "-Xmx{{ hbase_master_heap_mb }}m -Xms{{ hbase_master_heap_mb }}m"
+    volumes:
+      - "{{ hbase_conf_dir }}/hbase-site.xml:/opt/hbase/conf/hbase-site.xml:ro"
+      - "hbase-zk-data:{{ hbase_zk_data_dir }}"
+    state: started

@@ -16,6 +16,13 @@ RUN set -eux; \
 # puede sobreescribirla por env/montaje.
 # COPY conf/hbase-site.xml ${HBASE_HOME}/conf/hbase-site.xml
 
-# RegionServer / Master según el rol (lo decide el deploy: hbase_is_master).
-EXPOSE 16000 16010 16020 16030
-CMD ["hbase", "master", "start"]
+# entrypoint decide el rol según HBASE_ROLE=master|regionserver|rest
+COPY entrypoint.sh /entrypoint.sh
+RUN chmod +x /entrypoint.sh
+
+# Master: 16000 (RPC) 16010 (UI)
+# RegionServer: 16020 (RPC) 16030 (UI)
+# REST: 8085
+EXPOSE 16000 16010 16020 16030 8085
+
+ENTRYPOINT ["/entrypoint.sh"]

@@ -1,0 +1,30 @@
+---
+# ============================================================================
+# Despliega el job MapReduce de agregación de métricas WebHardMon.
+#
+# Target: grupo [mapreduce] = HDFS NameNode (nube local, 10.10.1.21).
+# El nodo se añade manualmente en el inventario (ver nota al pie).
+#
+# Prerequisitos:
+#   - HBase desplegado en gcp-b (ansible-playbook hbase.yml).
+#   - HDFS corriendo en nube local (tabla /data/telemetry poblada).
+#   - Docker instalado en el nodo de control (para compilar el JAR).
+#   - WireGuard activo: nodo local → gcp-b (10.30.0.0/16 alcanzable).
+#
+# ansible-playbook -i ansible/inventory.ini ansible/mapreduce.yml
+#
+# ── Añadir el NameNode al inventario ────────────────────────────────────────
+# En ansible/inventory.ini (o en un fichero de inventario extra), agregar:
+#
+#   [mapreduce]
+#   hdfs-namenode ansible_host=10.10.1.21 ansible_user=root \
+#     ansible_ssh_private_key_file=~/.ssh/id_rsa
+#
+# ============================================================================
+
+- name: Desplegar job MapReduce en el HDFS NameNode
+  hosts: mapreduce
+  gather_facts: false
+  become: true
+  roles:
+    - mapreduce

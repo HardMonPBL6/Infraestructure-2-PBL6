@@ -1,0 +1,90 @@
+---
+# roles/nifi/tasks/main.yml
+#
+# Despliega Apache NiFi + cloudflared en el CT de la nube local (Proxmox).
+#
+# Red de gestión vs datos:
+#   - Red de gestión (subred pública local):
+#       · Puerto 8080 → UI de NiFi. Accesible desde el nodo de gestión (10.0.0.1)
+#         vía LAN o WireGuard. NO exponer directamente a Internet.
+#       · cloudflared: el daemon abre una conexión SALIENTE al edge de Cloudflare
+#         (sin inbound ports). Enruta https://ingest.<zona> → localhost:8081.
+#   - Red de datos (salida hacia otras nubes):
+#       · Puerto 9092 → produce mensajes a Kafka en gcp-a (vía WireGuard routing).
+#       · Puerto 8081 → consulta Schema Registry en gcp-a (vía WireGuard).
+#       · Puerto 3307 → lookup JDBC de licencias en MySQL gcp-b (vía WireGuard).
+#
+# Flujo de un registro:
+#   Agente PC → HTTPS Cloudflare Tunnel → NiFi:8081 (ingest)
+#   NiFi valida licencia (MySQL gcp-b JDBC) → serializa Avro (Schema Registry gcp-a)
+#   → publica en Kafka gcp-a (puerto 9092)
+
+- name: Crear directorio de configuración NiFi en el host
+  file:
+    path: /etc/webhardmon/nifi
+    state: directory
+    mode: "0750"
+
+- name: Crear volumen persistente para el estado de NiFi
+  community.docker.docker_volume:
+    name: nifi-state
+    state: present
+
+- name: Crear volumen para logs de NiFi
+  community.docker.docker_volume:
+    name: nifi-logs
+    state: present
+
+- name: Levantar contenedor Apache NiFi
+  community.docker.docker_container:
+    name: nifi
+    image: "{{ nifi_image }}"
+    pull: true
+    restart_policy: unless-stopped
+    network_mode: host
+    env:
+      # Modo HTTP (sin TLS) para despliegue interno.
+      # El acceso externo de los colectores va siempre cifrado por Cloudflare TLS.
+      # Red gestión: UI accesible en el puerto 8080 de la IP del CT.
+      NIFI_WEB_HTTP_HOST: "0.0.0.0"
+      NIFI_WEB_HTTP_PORT: "{{ nifi_ui_port | string }}"
+      NIFI_WEB_HTTPS_HOST: ""
+      NIFI_WEB_HTTPS_PORT: ""
+      NIFI_WEB_PROXY_HOST: ""
+      # Heap: ajustar según RAM disponible del CT (la nube local no tiene restricción
+      # de spot; este valor es un mínimo razonable).
+      NIFI_JVM_HEAP_INIT: "512m"
+      NIFI_JVM_HEAP_MAX: "2g"
+    volumes:
+      - "nifi-state:/opt/nifi/nifi-current/state"
+      - "nifi-logs:/opt/nifi/nifi-current/logs"
+    state: started
+
+- name: Esperar a que NiFi esté disponible (puede tardar ~90 s en el primer arranque)
+  wait_for:
+    host: "127.0.0.1"
+    port: "{{ nifi_ui_port }}"
+    timeout: 180
+
+# ── cloudflared (Cloudflare Tunnel) ─────────────────────────────────────────
+# El daemon abre una conexión SALIENTE al edge de Cloudflare.
+# Enruta ingest.<zona> → http://localhost:{{ nifi_ingest_port }} (NiFi ListenHTTP).
+# El token viene de `tofu output -raw cloudflared_tunnel_token` e inyectado
+# en el inventario/vault como vault_cloudflared_tunnel_token.
+
+- name: Levantar cloudflared (Cloudflare Tunnel)
+  community.docker.docker_container:
+    name: cloudflared
+    image: "{{ cloudflared_image }}"
+    pull: true
+    restart_policy: unless-stopped
+    network_mode: host
+    command: "tunnel --no-autoupdate run --token {{ cloudflared_tunnel_token }}"
+    state: "{{ 'started' if cloudflared_enabled else 'absent' }}"
+
+- name: Mostrar URL de acceso a NiFi
+  debug:
+    msg:
+      - "NiFi UI (red gestión): http://{{ ansible_host }}:{{ nifi_ui_port }}/nifi"
+      - "Ingest (colectores → Cloudflare Tunnel → NiFi): puerto local {{ nifi_ingest_port }}"
+      - "Schema Registry (red datos): {{ nifi_schema_registry_url }}"

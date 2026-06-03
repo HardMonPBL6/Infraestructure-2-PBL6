@@ -5,8 +5,8 @@ grafana_image: "{{ container_registry }}/grafana:{{ image_tag }}"
 grafana_port: 3000
 grafana_root_url: "http://{{ inventory_hostname }}:3000"
 
-# Datasources de las dos ramas: hot (Cassandra vía WireGuard a gcp-a) y
-# served/BI (MySQL star schema + Elasticsearch del propio gcp-b).
+# Datasources: hot (Cassandra vía WireGuard a gcp-a) + served/BI (MySQL y HBase).
+# Elasticsearch eliminado de la arquitectura final.
 grafana_datasources:
   - name: cassandra-hot
     type: hadesarchitect-cassandra-datasource
@@ -24,12 +24,8 @@ grafana_datasources:
     user: "{{ mysql_app_user | default('admin') }}"
     secureJsonData:
       password: "{{ vault_mysql_app_password }}"
-  - name: elasticsearch
-    type: elasticsearch
-    url: "http://{{ groups['elasticsearch'][0] }}:9200"
-    jsonData:
-      esVersion: "8.0.0"
-      index: "webhardmon-*"
-      timeField: "@timestamp"
+  - name: hbase-rest
+    type: marcusolsson-json-datasource
+    url: "http://localhost:{{ hbase_rest_port | default(8085) }}"
 
 # grafana_admin_password: "{{ vault_grafana_admin_password }}"

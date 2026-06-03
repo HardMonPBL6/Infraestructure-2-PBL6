@@ -1,0 +1,610 @@
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>WebHardMon · Plan de Niveles</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Chakra+Petch:wght@500;600;700&family=IBM+Plex+Mono:wght@400;500;600&family=IBM+Plex+Sans:wght@400;500;600&display=swap" rel="stylesheet">
+
+<style>
+:root{
+  --ink:#070b14;
+  --ink2:#0c1322;
+  --panel:#0f1828;
+  --panel2:#13203450;
+  --line:#1d2c44;
+  --line2:#27405f;
+  --txt:#cdd9ec;
+  --txt-dim:#7f93b0;
+  --txt-faint:#5a6e8c;
+  --gold:#f5b942;
+  --data:#36d6c3;
+  --hmi:#f59e3b;
+  --sec:#ff5d7a;
+  --ok:#52e0a0;
+  --glow:0 0 0 1px var(--line2), 0 8px 30px -12px #000;
+}
+*{box-sizing:border-box}
+html,body{margin:0}
+body{
+  background:
+    radial-gradient(1200px 600px at 80% -10%, #11203a 0%, transparent 60%),
+    radial-gradient(900px 500px at -10% 30%, #15112a 0%, transparent 55%),
+    var(--ink);
+  color:var(--txt);
+  font-family:"IBM Plex Sans",sans-serif;
+  font-size:15px;line-height:1.55;
+  -webkit-font-smoothing:antialiased;
+  padding:0 0 80px;
+}
+body::before{
+  content:"";position:fixed;inset:0;pointer-events:none;z-index:0;
+  background-image:linear-gradient(var(--line) 1px,transparent 1px),linear-gradient(90deg,var(--line) 1px,transparent 1px);
+  background-size:46px 46px;opacity:.045;
+}
+.wrap{max-width:1080px;margin:0 auto;padding:0 22px;position:relative;z-index:1}
+
+/* ---------- header ---------- */
+header{padding:46px 0 26px}
+.kicker{font-family:"IBM Plex Mono",monospace;font-size:11.5px;letter-spacing:.32em;text-transform:uppercase;color:var(--gold);margin:0 0 14px}
+h1{font-family:"Chakra Petch",sans-serif;font-weight:700;font-size:clamp(30px,5.4vw,52px);line-height:1.02;margin:0;letter-spacing:-.01em}
+h1 .sub{display:block;color:var(--txt-dim);font-weight:500;font-size:.42em;letter-spacing:.02em;margin-top:12px}
+.lede{max-width:680px;color:var(--txt-dim);margin:20px 0 0;font-size:15.5px}
+.lede b{color:var(--txt)}
+
+/* decisions strip */
+.decisions{display:grid;grid-template-columns:repeat(auto-fit,minmax(200px,1fr));gap:12px;margin:30px 0 8px}
+.dec{background:linear-gradient(180deg,var(--panel),#0b1322);border:1px solid var(--line);border-radius:12px;padding:14px 16px}
+.dec .t{font-family:"IBM Plex Mono",monospace;font-size:10.5px;letter-spacing:.16em;text-transform:uppercase;color:var(--txt-faint);margin-bottom:6px}
+.dec .v{font-weight:600;font-size:14px;color:var(--txt)}
+.dec .v small{display:block;font-weight:400;color:var(--txt-dim);font-size:12.5px;margin-top:3px;line-height:1.4}
+
+/* ---------- controls ---------- */
+.controls{position:sticky;top:0;z-index:20;margin:34px 0 0;padding:14px 0;
+  background:linear-gradient(180deg,var(--ink) 70%,transparent);
+  display:flex;flex-wrap:wrap;gap:18px;align-items:center}
+.chips{display:flex;flex-wrap:wrap;gap:8px}
+.chip{font-family:"IBM Plex Mono",monospace;font-size:12px;letter-spacing:.04em;
+  border:1px solid var(--line2);background:#0d1626;color:var(--txt-dim);
+  padding:7px 13px;border-radius:999px;cursor:pointer;transition:.15s;user-select:none;
+  display:inline-flex;align-items:center;gap:7px}
+.chip .dot{width:8px;height:8px;border-radius:50%;background:currentColor}
+.chip[data-on="1"]{color:var(--ink);border-color:transparent}
+.chip.r-all[data-on="1"]{background:var(--txt);color:var(--ink)}
+.chip.r-data{color:var(--data)} .chip.r-data[data-on="1"]{background:var(--data)}
+.chip.r-hmi{color:var(--hmi)}  .chip.r-hmi[data-on="1"]{background:var(--hmi)}
+.chip.r-sec{color:var(--sec)}  .chip.r-sec[data-on="1"]{background:var(--sec)}
+.overall{margin-left:auto;display:flex;align-items:center;gap:12px;font-family:"IBM Plex Mono",monospace;font-size:12.5px;color:var(--txt-dim)}
+.overall b{color:var(--txt)}
+.bar{width:150px;height:7px;border-radius:6px;background:#0c1525;border:1px solid var(--line);overflow:hidden}
+.bar > i{display:block;height:100%;width:0;background:linear-gradient(90deg,var(--data),var(--gold));transition:width .4s}
+
+/* ---------- phase ---------- */
+.phase{margin:40px 0 0;border:1px solid var(--line);border-radius:16px;overflow:hidden;background:linear-gradient(180deg,#0b1322,#0a101c)}
+.phase.locked{opacity:.55}
+.phead{display:flex;align-items:center;gap:16px;padding:18px 22px;background:var(--panel2);border-bottom:1px solid var(--line);cursor:pointer}
+.pnum{font-family:"Chakra Petch";font-weight:700;font-size:22px;width:46px;height:46px;flex:none;
+  display:grid;place-items:center;border-radius:12px;background:#0a1424;border:1px solid var(--line2);color:var(--gold)}
+.phead h2{font-family:"Chakra Petch";font-weight:600;font-size:20px;margin:0;letter-spacing:.01em}
+.phead .meta{color:var(--txt-dim);font-size:13px;font-family:"IBM Plex Mono",monospace}
+.phead .right{margin-left:auto;display:flex;align-items:center;gap:14px}
+.gate-tag{font-family:"IBM Plex Mono",monospace;font-size:10.5px;letter-spacing:.14em;text-transform:uppercase;
+  padding:5px 10px;border-radius:6px;border:1px solid;white-space:nowrap}
+.gate-tag.must{color:var(--gold);border-color:#5a4410;background:#1c1404}
+.gate-tag.lock{color:var(--sec);border-color:#4a1626;background:#1c0810}
+.gate-tag.open{color:var(--ok);border-color:#15402b;background:#08160f}
+.pct{font-family:"IBM Plex Mono",monospace;font-size:14px;color:var(--txt);min-width:42px;text-align:right}
+.chev{transition:.25s;color:var(--txt-faint)}
+.phase.collapsed .chev{transform:rotate(-90deg)}
+.pbody{padding:8px 22px 22px}
+.phase.collapsed .pbody{display:none}
+
+.lockbanner{margin:14px 0 4px;padding:13px 16px;border:1px dashed #4a1626;border-radius:10px;
+  background:#160810;color:#ffb3c1;font-size:13.5px;display:flex;gap:10px;align-items:flex-start}
+.lockbanner b{color:#fff}
+
+/* group within phase */
+.group{margin-top:18px}
+.glabel{display:flex;align-items:center;gap:9px;font-family:"IBM Plex Mono",monospace;
+  font-size:11px;letter-spacing:.16em;text-transform:uppercase;color:var(--txt-faint);margin:0 0 10px}
+.glabel .gd{width:9px;height:9px;border-radius:2px}
+.glabel.data .gd{background:var(--data)} .glabel.hmi .gd{background:var(--hmi)} .glabel.sec .gd{background:var(--sec)}
+.glabel .gp{margin-left:auto;color:var(--txt-dim);letter-spacing:.04em}
+
+/* item */
+.item{display:flex;gap:13px;padding:11px 12px;border:1px solid var(--line);border-radius:11px;
+  background:#0a111e;margin-bottom:8px;transition:.15s;cursor:pointer;align-items:flex-start}
+.item:hover{border-color:var(--line2);background:#0c1626}
+.item.done{background:#08160f;border-color:#163e2b}
+.item.skip{cursor:default;opacity:.78;border-style:dashed;border-color:#3a2a12;background:#120d05}
+.item.skip:hover{background:#120d05}
+.box{width:20px;height:20px;flex:none;margin-top:1px;border-radius:6px;border:1.6px solid var(--line2);
+  display:grid;place-items:center;transition:.15s;color:transparent;font-size:12px}
+.item.done .box{background:var(--ok);border-color:var(--ok);color:#06140d}
+.item.skip .box{border-color:#5a4410;color:var(--gold);background:#1c1404}
+.itxt{flex:1}
+.itxt .tag{font-family:"IBM Plex Mono",monospace;font-size:10px;letter-spacing:.1em;
+  padding:2px 7px;border-radius:5px;margin-right:8px;vertical-align:1.5px;text-transform:uppercase}
+.tag.data{color:var(--data);background:#0c2420} .tag.hmi{color:var(--hmi);background:#241704} .tag.sec{color:var(--sec);background:#240b13}
+.itxt .body{font-size:14.3px}
+.item.done .body{color:var(--txt-dim)}
+.item.skip .body{color:#d8c08a}
+.note{margin-top:5px;font-size:12.5px;color:var(--txt-faint);font-family:"IBM Plex Mono",monospace;line-height:1.5}
+.note b{color:var(--gold)}
+.hidden{display:none!important}
+
+footer{margin-top:48px;padding-top:20px;border-top:1px solid var(--line);color:var(--txt-faint);font-size:12.5px;font-family:"IBM Plex Mono",monospace}
+footer b{color:var(--txt-dim)}
+.reset{float:right;cursor:pointer;color:var(--txt-dim);border:1px solid var(--line2);border-radius:7px;padding:5px 11px;background:#0c1626;font-family:inherit;font-size:12px}
+.reset:hover{color:var(--txt);border-color:var(--line2)}
+@media(max-width:620px){.overall{margin-left:0;width:100%}.controls{position:static}}
+/* architecture */
+.arch{margin:36px 0 0}
+.arch h3{font-family:"Chakra Petch";font-weight:600;font-size:23px;margin:0 0 4px;letter-spacing:.01em}
+.arch .sub2{color:var(--txt-dim);font-size:14px;margin:0 0 16px;max-width:680px}
+.arch .sub2 b{color:var(--txt)}
+.dtabs{display:flex;flex-wrap:wrap;gap:8px;margin-bottom:14px}
+.dtab{font-family:"IBM Plex Mono",monospace;font-size:12px;border:1px solid var(--line2);
+  background:#0d1626;color:var(--txt-dim);padding:8px 14px;border-radius:8px;cursor:pointer;transition:.15s}
+.dtab:hover{color:var(--txt)}
+.dtab[data-on="1"]{background:var(--gold);color:var(--ink);border-color:transparent;font-weight:600}
+.diagram-wrap{border:1px solid var(--line);border-radius:14px;
+  background:radial-gradient(700px 320px at 70% -20%,#11203a 0,transparent 60%),#0a101c;
+  padding:24px;overflow:auto;min-height:220px;display:flex;justify-content:center}
+.diagram-wrap svg{max-width:100%;height:auto}
+.dcap{margin-top:13px;font-family:"IBM Plex Mono",monospace;font-size:12px;color:var(--txt-faint);line-height:1.55}
+.dcap b{color:var(--gold)}
+</style>
+
+<div class="wrap">
+<header>
+  <p class="kicker">PBL6 · Datu Ingeniaritza · HMI · Segurtasuna</p>
+  <h1>WebHardMon<span class="sub">Plan progresivo — Nivel&nbsp;1 → Nivel&nbsp;2 completo → Nivel&nbsp;3 parcial</span></h1>
+  <p class="lede">Hoja de ruta para las tres rúbricas objetivo. La regla acordada con el profesor: <b>el Nivel&nbsp;3 parcial solo cuenta si el Nivel&nbsp;2 está completo al 100%</b>. Por eso la Fase&nbsp;C permanece <b>bloqueada</b> hasta marcar todo el Nivel&nbsp;2. Marca tareas para seguir el avance — es un panel de planificación, no se guarda nada al cerrar.</p>
+
+  <div class="decisions">
+    <div class="dec"><div class="t">3 nubes</div><div class="v">Local + GCP-A + GCP-B<small>Dos proyectos GCP por IP pública = 2 nubes (criterio del profesor)</small></div></div>
+    <div class="dec"><div class="t">IaC</div><div class="v">OpenTofu + Ansible<small>Infra con OpenTofu, configuración con Ansible, desde un único nodo de gestión</small></div></div>
+    <div class="dec"><div class="t">VPN</div><div class="v">WireGuard<small>Malla con un gateway por nube; cumple RGI320 (tráfico inter-nube cifrado sobre IP pública)</small></div></div>
+    <div class="dec"><div class="t">Coste GCP</div><div class="v">3 VMs spot / nube<small>e2-standard-4 spot con DELETE; co-alojan servicios en contenedores (≈€25-35/nube en 2 semanas)</small></div></div>
+    <div class="dec"><div class="t">Concurrencia</div><div class="v">Java RMI<small>Enriquecimiento StressScore (rúbrica Sistemas Concurrentes, fuera de este plan)</small></div></div>
+  </div>
+</header>
+
+<section class="arch">
+  <h3>Arquitectura completa</h3>
+  <p class="sub2">Cómo queda el sistema repartido en las <b>tres nubes</b> con la malla <b>WireGuard</b>. El reparto por nube es una <b>propuesta</b> (validadla en grupo): la idea es que haya flujo real entre nubes para justificar la VPN.</p>
+  <div class="dtabs">
+    <span class="dtab" data-d="arch" data-on="1">Arquitectura lógica</span>
+    <span class="dtab" data-d="topo" data-on="0">Topología 3 nubes + WireGuard</span>
+    <span class="dtab" data-d="flow" data-on="0">Ciclo de vida del dato</span>
+  </div>
+  <div class="diagram-wrap" id="diagram"></div>
+  <p class="dcap" id="dcap"></p>
+</section>
+
+<div class="controls">
+  <div class="chips" id="chips">
+    <span class="chip r-all" data-r="all" data-on="1"><span class="dot"></span>Todas</span>
+    <span class="chip r-data" data-r="data" data-on="0"><span class="dot"></span>Datu Ingeniaritza</span>
+    <span class="chip r-hmi" data-r="hmi" data-on="0"><span class="dot"></span>HMI</span>
+    <span class="chip r-sec" data-r="sec" data-on="0"><span class="dot"></span>Segurtasuna</span>
+  </div>
+  <div class="overall">
+    <span>Avance total <b id="ovTxt">0 / 0</b></span>
+    <span class="bar"><i id="ovBar"></i></span>
+  </div>
+</div>
+
+<div id="phases"></div>
+
+<footer>
+  <button class="reset" id="reset">↺ Reiniciar marcas</button>
+  <b>Leyenda:</b> ✓ tarea del plan · ⏭ omitida a propósito (no afecta al Nivel 2). El Nivel 3 de Datu Ingeniaritza es <b>parcial por diseño</b>: se cubre casi todo menos la 3.ª tecnología de ingesta.
+</footer>
+</div>
+
+<script>
+// ---------- PLAN DATA ----------
+const RUB = {data:"Datu Ingeniaritza", hmi:"Pertsona-Makina Interfazea", sec:"Segurtasuna"};
+
+const PLAN = [
+  {
+    n:"A", title:"Cimientos — Nivel 1 en las tres rúbricas",
+    meta:"construir ya pensando en N3",
+    gate:"must",
+    groups:[
+      {r:"data", items:[
+        {b:"Levantar las TRES nubes desde el inicio: local + GCP-A + GCP-B (no montar dos y añadir la tercera después)."},
+        {b:"Malla WireGuard uniendo las tres nubes (un gateway por nube); en cada nube ≥2 redes/subredes separadas con propósito justificado (ingesta pública / almacenamiento privado).", note:"WireGuard cumple RGI320: la conexión entre nubes va cifrada aunque el transporte sea IP pública. Un gateway por nube (node-01) enruta el tráfico inter-nube; los nodos privados (node-02/03) llegan por rutas estáticas a través de su gateway. IPs públicas estáticas para que los peers sobrevivan a la recreación de las VMs spot."},
+        {b:"Todo el IaC con OpenTofu desde el nodo de gestión: un único state backend (bucket GCS), módulos por nube. Ansible para la configuración de hosts."},
+        {b:"Ingesta asíncrona con Kafka (3 brokers + ZooKeeper) en clúster HA. Justificar la elección por escrito."},
+        {b:"Un sistema de almacenamiento masivo en clúster distribuido con replicación (HDFS o Cassandra). Justificarlo."},
+        {b:"Enriquecer ≥1 fuente: cluster Java + RMI calculando StressScore (cuenta como data enrichment)."},
+        {b:"Formato binario justificado: Avro en el cable de Kafka, Parquet en HDFS."},
+        {b:"Desplegar almacenamiento e ingesta como contenedores. Datos sintéticos pero basados en datos reales.", note:"RGI320: en GCP, 3 VMs spot e2-standard-4 por nube co-alojan los servicios como contenedores con UNA instancia de cada servicio clusterizado por VM → siguen siendo clústeres de 3 nodos sobre 3 hosts (heaps topados para no competir por RAM). La nube local mantiene un CT por nodo."},
+      ]},
+      {r:"sec", items:[
+        {b:"PRIMERO: análisis de riesgos del estado inicial — activos, amenazas y riesgos identificados (RGI312).", note:"Es prerrequisito: RGI311 N2 pide medidas 'partiendo del análisis de riesgos'."},
+        {b:"Diseñar una política de backup apropiada y razonada, acorde al sistema presentado."},
+        {b:"Hardening SSH: sin login root, solo clave pública, anti-bruteforce (fail2ban/CrowdSec). Política de contraseñas fuertes en todos los hosts."},
+        {b:"Auditoría de seguridad del código con herramienta especializada (SonarQube/Snyk/Semgrep). Identificar y corregir los problemas detectados."},
+      ]},
+      {r:"hmi", items:[
+        {b:"⚠ Usuarios y resultados REALES. Resultados falseados = 0 en toda la rúbrica de HMI."},
+        {b:"Identificar tareas principales de la webapp y diseñar la prueba de usabilidad: documento de plan + cuestionarios."},
+        {b:"Ejecutar la prueba documentando proceso (vídeos, raw data, excels) y resultados (documento de conclusiones)."},
+        {b:"Cumplir 4 principios de usabilidad (Nielsen)."},
+        {b:"EOD: implementar herramienta/método de análisis del comportamiento del usuario desde la webapp y seguir la metodología EOD (contexto, requisitos, soluciones de diseño, evaluación)."},
+      ]},
+    ]
+  },
+  {
+    n:"B", title:"Nivel 2 — COMPLETO (puerta obligatoria)",
+    meta:"el N3 parcial no cuenta sin esto al 100%",
+    gate:"must",
+    groups:[
+      {r:"data", items:[
+        {b:"Datos mixtos: algunos reales, otros sintéticos. Enriquecer TODAS las fuentes (Java + RMI StressScore)."},
+        {b:"DOS sistemas de almacenamiento masivo distintos justificados, al menos uno columnar (HBase/Cassandra + Parquet/HDFS)."},
+        {b:"Añadir particionado (sharding) además de replicación: particiones Kafka, partition key Cassandra, regiones HBase."},
+        {b:"DOS tecnologías de ingesta justificadas con roles diferenciados: NiFi (routing/validación/serialización) + Kafka (backplane asíncrono)."},
+        {b:"Tres nubes efectivamente en uso (ya provisionadas en Fase A)."},
+        {b:"Arquitectura con capa batch Y streaming simultáneas: batch = HDFS+MapReduce, streaming = Kafka→Java→Cassandra."},
+        {b:"RGI320: TODOS los recursos de las tres nubes con configuración automatizada desde el mismo nodo de gestión (OpenTofu + Ansible centralizados)."},
+        {b:"Registro de contenedores en UNA nube (Artifact Registry en GCP-A es lo más rápido con OpenTofu)."},
+      ]},
+      {r:"sec", items:[
+        {b:"Análisis de riesgos ampliado: incluye las políticas/mecanismos de seguridad propuestos y mide su impacto sobre los riesgos."},
+        {b:"Medidas de integridad y confidencialidad en hosts, servicios y tráfico, partiendo del análisis de riesgos: TLS, cifrado en reposo, firewall/segmentación."},
+        {b:"Definir buenas prácticas de desarrollo para evitar que reaparezcan los fallos del código."},
+        {b:"Pruebas de estrés sobre los componentes más críticos con MÁS DE UNA herramienta (k6/JMeter/Locust/Gatling)."},
+        {b:"Implementar la política de backup con herramienta especializada + definir política de recuperación ante desastres (datos, pasos, responsables, scripts)."},
+      ]},
+      {r:"hmi", items:[
+        {b:"Evaluación de accesibilidad con herramienta automática (WAVE/axe/Lighthouse). Documentar resultados (pantallazos, comentarios de errores)."},
+        {b:"Cumplir 6 principios de usabilidad."},
+        {b:"EOD: visualizar en Grafana las métricas definidas de uso de la aplicación."},
+      ]},
+    ]
+  },
+  {
+    n:"C", title:"Nivel 3 — Parcial",
+    meta:"se desbloquea al completar la Fase B",
+    gate:"lock",
+    groups:[
+      {r:"data", items:[
+        {b:"Herramienta de data provenance: activar y documentar la provenance integrada de NiFi.", note:"Victoria rápida — NiFi ya la trae."},
+        {b:"TERCER sistema de almacenamiento masivo justificado: HDFS + Cassandra + HBase (o Elasticsearch como tercero)."},
+        {b:"Capa de servicio: añadir la capa service (batch + streaming + service). La webapp/API que sirve datos del ciclo de vida es la capa service."},
+        {b:"Datos de streaming de origen REAL, no simulado: agentes corriendo en máquinas reales. Avanzar hacia 'todos los datos reales'."},
+        {b:"OpenTofu: las tres nubes como un único proyecto IaC + config automatizada desde el mismo nodo."},
+        {b:"Registro de contenedores en CADA nube (Artifact Registry en GCP-A y GCP-B + Harbor en la local)."},
+        {skip:true, b:"TERCERA tecnología de ingesta distinta — OMITIDA a propósito.", note:"Bloqueante decidido: no se persigue. Por eso el N3 de Datu es PARCIAL."},
+        {skip:true, b:"TODAS las herramientas de ingesta en HA (NiFi clusterizado) — omitida.", note:"Kafka HA sí; clusterizar NiFi queda fuera de alcance."},
+      ]},
+      {r:"sec", items:[
+        {b:"El análisis de riesgos incorpora el riesgo residual (hondar arriskua)."},
+        {b:"Medidas de disponibilidad de servicios y datos críticos a nivel de host / grupo de hosts."},
+        {b:"Pruebas de estrés sobre TODOS los componentes desplegados relevantes."},
+        {b:"Sistema de integridad de ficheros importantes (AIDE/Tripwire) en ≥2 hosts distintos."},
+        {b:"Pruebas de fuzzing sobre los componentes más críticos."},
+        {b:"Política de verificación de backups + restaurar al menos UNA vez para comprobar que sirven.", note:"Segurtasuna es alcanzable casi al completo en N3."},
+      ]},
+      {r:"hmi", items:[
+        {b:"Corregir los problemas principales de usabilidad y accesibilidad: implementar cambios en la app final y documentar qué se hizo."},
+        {b:"Cumplir 9 principios de usabilidad."},
+        {b:"EOD: métricas de uso visualizadas en Grafana en TIEMPO REAL."},
+      ]},
+    ]
+  }
+];
+
+// ---------- STATE ----------
+const state = {};            // id -> bool
+let activeRubric = "all";
+const idsByPhase = {};       // phaseN -> [ids] (excl. skip)
+const phaseEls = {};
+
+// build ids
+PLAN.forEach(p=>{
+  idsByPhase[p.n]=[];
+  p.groups.forEach(g=>g.items.forEach((it,i)=>{
+    it._id = `${p.n}-${g.r}-${i}`;
+    if(!it.skip) idsByPhase[p.n].push(it._id);
+  }));
+});
+
+// ---------- RENDER ----------
+const root = document.getElementById("phases");
+PLAN.forEach((p,pi)=>{
+  const ph = document.createElement("section");
+  ph.className = "phase" + (pi===0?"":" collapsed");
+  phaseEls[p.n]=ph;
+
+  const gateTag = p.gate==="must"
+    ? `<span class="gate-tag must" data-tag>completar 100%</span>`
+    : `<span class="gate-tag lock" data-tag>🔒 bloqueado</span>`;
+
+  ph.innerHTML = `
+    <div class="phead">
+      <div class="pnum">${p.n}</div>
+      <div>
+        <h2>${p.title}</h2>
+        <div class="meta">${p.meta}</div>
+      </div>
+      <div class="right">
+        ${gateTag}
+        <span class="pct" data-pct>0%</span>
+        <svg class="chev" width="16" height="16" viewBox="0 0 16 16"><path d="M4 6l4 4 4-4" stroke="currentColor" stroke-width="1.7" fill="none" stroke-linecap="round"/></svg>
+      </div>
+    </div>
+    <div class="pbody"></div>`;
+
+  const body = ph.querySelector(".pbody");
+
+  if(p.gate==="lock"){
+    const lb=document.createElement("div");
+    lb.className="lockbanner"; lb.dataset.lockbanner="1";
+    lb.innerHTML=`<span>🔒</span><span><b>Fase bloqueada.</b> El Nivel 3 parcial solo es válido con el Nivel 2 completo. Marca todas las tareas de la Fase B para desbloquear estas.</span>`;
+    body.appendChild(lb);
+  }
+
+  p.groups.forEach(g=>{
+    const grp=document.createElement("div");
+    grp.className="group";
+    grp.dataset.r=g.r;
+    grp.innerHTML=`<div class="glabel ${g.r}"><span class="gd"></span>${RUB[g.r]}<span class="gp" data-gp></span></div>`;
+    g.items.forEach(it=>{
+      const el=document.createElement("div");
+      el.className="item"+(it.skip?" skip":"");
+      el.dataset.id=it._id; el.dataset.r=g.r; if(it.skip) el.dataset.skip="1";
+      el.innerHTML=`
+        <div class="box">${it.skip?"⏭":"✓"}</div>
+        <div class="itxt">
+          <div class="body"><span class="tag ${g.r}">${g.r}</span>${it.b}</div>
+          ${it.note?`<div class="note">⚐ ${it.note}</div>`:""}
+        </div>`;
+      grp.appendChild(el);
+    });
+    body.appendChild(grp);
+  });
+
+  root.appendChild(ph);
+
+  // collapse toggle
+  ph.querySelector(".phead").addEventListener("click",()=>ph.classList.toggle("collapsed"));
+});
+
+// ---------- INTERACTION ----------
+function phaseDone(n){
+  const ids=idsByPhase[n];
+  return ids.length && ids.every(id=>state[id]);
+}
+function isLocked(p){ return p.gate==="lock" && !phaseDone("B"); }
+
+root.addEventListener("click",e=>{
+  const item=e.target.closest(".item");
+  if(!item || item.dataset.skip) return;
+  const phaseN=item.dataset.id.split("-")[0];
+  const p=PLAN.find(x=>x.n===phaseN);
+  if(isLocked(p)) return;            // can't check locked items
+  const id=item.dataset.id;
+  state[id]=!state[id];
+  refresh();
+});
+
+document.getElementById("chips").addEventListener("click",e=>{
+  const chip=e.target.closest(".chip"); if(!chip) return;
+  activeRubric=chip.dataset.r;
+  document.querySelectorAll(".chip").forEach(c=>c.dataset.on = c.dataset.r===activeRubric?"1":"0");
+  applyFilter();
+});
+
+document.getElementById("reset").addEventListener("click",()=>{
+  for(const k in state) delete state[k];
+  refresh();
+});
+
+function applyFilter(){
+  document.querySelectorAll(".group").forEach(g=>{
+    g.classList.toggle("hidden", activeRubric!=="all" && g.dataset.r!==activeRubric);
+  });
+}
+
+function refresh(){
+  // per-item visuals
+  document.querySelectorAll(".item").forEach(el=>{
+    if(el.dataset.skip) return;
+    el.classList.toggle("done", !!state[el.dataset.id]);
+  });
+
+  // lock state for phase C
+  PLAN.forEach(p=>{
+    const ph=phaseEls[p.n];
+    const tag=ph.querySelector("[data-tag]");
+    if(p.gate==="lock"){
+      const locked=isLocked(p);
+      ph.classList.toggle("locked",locked);
+      const lb=ph.querySelector("[data-lockbanner]");
+      if(lb) lb.style.display=locked?"flex":"none";
+      tag.className="gate-tag "+(locked?"lock":"open");
+      tag.textContent=locked?"🔒 bloqueado":"✓ desbloqueado";
+    }else if(p.gate==="must"){
+      const done=phaseDone(p.n);
+      tag.className="gate-tag "+(done?"open":"must");
+      tag.textContent=done?"✓ completo":"completar 100%";
+    }
+    // phase pct
+    const ids=idsByPhase[p.n];
+    const d=ids.filter(id=>state[id]).length;
+    ph.querySelector("[data-pct]").textContent = ids.length?Math.round(d/ids.length*100)+"%":"—";
+    // per-group counts
+    p.groups.forEach((g,gi)=>{
+      const gids=g.items.filter(i=>!i.skip).map(i=>i._id);
+      const gd=gids.filter(id=>state[id]).length;
+      const gpEl=ph.querySelectorAll("[data-gp]")[gi];
+      if(gpEl) gpEl.textContent=`${gd}/${gids.length}`;
+    });
+  });
+
+  // overall (skip excluded)
+  const all=Object.values(idsByPhase).flat();
+  const done=all.filter(id=>state[id]).length;
+  document.getElementById("ovTxt").textContent=`${done} / ${all.length}`;
+  document.getElementById("ovBar").style.width=(all.length?done/all.length*100:0)+"%";
+}
+
+applyFilter();
+refresh();
+</script>
+
+<script src="https://cdnjs.cloudflare.com/ajax/libs/mermaid/10.9.1/mermaid.min.js"></script>
+<script>
+const DIAGRAMS = {
+arch:`graph TB
+  subgraph LOCAL["NUBE LOCAL · on-prem"]
+    Agents["Agentes HW reales<br/>telemetria JSON"]
+    NiFi["Apache NiFi<br/>ingesta · validacion<br/>Avro · provenance"]
+    HDFS["HDFS + Parquet<br/>data lake · batch"]
+    MR["MapReduce<br/>agregacion"]
+    Harbor["Harbor<br/>registro contenedores"]
+    Agents -->|JSON| NiFi
+    HDFS --> MR
+  end
+  subgraph GCPA["GCP-A · streaming"]
+    Kafka["Apache Kafka HA<br/>3 brokers + ZooKeeper"]
+    Java["Java Cluster<br/>consumidor"]
+    RMI["RMI<br/>StressScore"]
+    Cass["Cassandra<br/>TSDB hot · sharded"]
+    ARa["Artifact Registry"]
+    Kafka --> Java
+    Java <-->|RMI| RMI
+    Java -->|enriquecido| Cass
+  end
+  subgraph GCPB["GCP-B · analitica + servicio"]
+    MySQL["MySQL<br/>app DB · empresa<br/>admin · licencia"]
+    HBase["HBase<br/>served · columnar"]
+    ES["Elasticsearch<br/>busqueda · alertas"]
+    Viz["Grafana<br/>capa service"]
+    ARb["Artifact Registry"]
+    HBase --> Viz
+    ES --> Viz
+    MySQL --> Viz
+  end
+  NiFi -.->|Avro · WireGuard| Kafka
+  NiFi -.->|valida licencia · WireGuard| MySQL
+  Java -.->|Parquet · WireGuard| HDFS
+  MR -.->|agregados · WireGuard| HBase
+  Java -.->|alerts · WireGuard| ES
+  Cass -.->|consultas · WireGuard| Viz
+  classDef store fill:#0c2420,stroke:#36d6c3,color:#cdeee9;
+  classDef cold fill:#0e1d33,stroke:#5b9bd5,color:#cfe0f5;
+  classDef serve fill:#241016,stroke:#ff5d7a,color:#ffd4dd;
+  class Cass,HBase store; class HDFS cold; class ES,Viz serve;`,
+
+topo:`graph LR
+  Mgmt["Nodo de gestion<br/>OpenTofu + Ansible<br/>state unico"]
+  TS(("WireGuard mesh<br/>1 gateway/nube"))
+  subgraph L["NUBE LOCAL"]
+    Lpub["subred publica<br/>ingesta"]
+    Lpriv["subred privada<br/>almacenamiento"]
+  end
+  subgraph A["GCP-A · 3 VMs spot"]
+    Apub["subred publica<br/>node-01"]
+    Apriv["subred privada<br/>node-02 · node-03"]
+  end
+  subgraph B["GCP-B · 3 VMs spot"]
+    Bpub["subred publica<br/>node-01"]
+    Bpriv["subred privada<br/>node-02 · node-03"]
+  end
+  Lpub --- TS
+  Apub --- TS
+  Bpub --- TS
+  A <-->|IP publica| B
+  Mgmt -.->|IaC + config| L
+  Mgmt -.->|IaC + config| A
+  Mgmt -.->|IaC + config| B
+  classDef mesh fill:#1c1404,stroke:#f5b942,color:#ffe9bf;
+  classDef mg fill:#10203a,stroke:#36d6c3,color:#cdeee9;
+  class TS mesh; class Mgmt mg;`,
+
+flow:`flowchart LR
+  A["1 · Agentes reales<br/>(PC de usuario)<br/>emiten JSON"] --> CF["Cloudflare Tunnel<br/>HTTPS + Access token"]
+  CF --> B["2 · NiFi<br/>valida licencia<br/>+ Avro + provenance"]
+  B -.->|lookup codigo+portatil| MY["MySQL<br/>app DB · licencia"]
+  B --> C["3 · Kafka HA<br/>particionado"]
+  C --> D["4 · Java + RMI<br/>StressScore"]
+  D --> E1["5a · Cassandra<br/>hot · live"]
+  D --> E2["5b · HDFS Parquet<br/>cold"]
+  E2 --> F["6 · MapReduce<br/>agregacion"]
+  F --> G2["7 · HBase<br/>served"]
+  D --> H["alertas<br/>Elasticsearch"]
+  E1 --> V["Grafana<br/>capa service"]
+  G2 --> V
+  H --> V
+  classDef hot fill:#0c2420,stroke:#36d6c3,color:#cdeee9;
+  classDef cold fill:#0e1d33,stroke:#5b9bd5,color:#cfe0f5;
+  classDef sv fill:#241016,stroke:#ff5d7a,color:#ffd4dd;
+  classDef edge fill:#1c1404,stroke:#f5b942,color:#ffe9bf;
+  class E1 hot; class E2,F cold; class V,MY sv; class CF edge;`
+};
+
+const CAPS = {
+  arch:"<b>Líneas discontinuas = saltos entre nubes</b> cifrados por WireGuard. Tres sistemas de almacenamiento masivo (Cassandra hot · HDFS/Parquet cold · HBase served) cubren el N3 parcial de Datu Ingeniaritza. <b>MySQL es la BD de la aplicación</b> (empresa · admin · licencia), no un almacén analítico: NiFi consulta la licencia antes de enrutar a Kafka. El registro de contenedores aparece en cada nube (Harbor + Artifact Registry ×2). En GCP, estos servicios se reparten como contenedores sobre <b>3 VMs spot por nube</b> (una instancia de cada servicio por VM).",
+  topo:"Cada nube con ≥2 subredes (pública/privada) justificadas — requisito RGI320. <b>GCP-A ↔ GCP-B por IP pública = dos nubes</b> según el profesor, pero el tráfico viaja por la malla <b>WireGuard</b> (un gateway por nube, node-01). Cada nube GCP = <b>3 VMs spot e2-standard-4</b> (node-01 público de borde y gateway WireGuard, node-02/03 privadas con rutas estáticas vía el gateway) que co-alojan los servicios → abarata el coste manteniendo clústeres de 3 nodos. Todo se provisiona y configura desde un único nodo de gestión.",
+  flow:"Recorrido extremo a extremo: el origen del streaming son <b>agentes reales</b> (no simulado) → requisito de N3. Como corren en PCs de usuario fuera de las nubes, entran por un <b>túnel Cloudflare</b> (ingest.&lt;zona&gt;, autenticado con un service token de Cloudflare Access) que termina en el CT de NiFi — sin VPN en el cliente ni abrir NAT. <b>NiFi valida la licencia</b> (codigo + portatil) contra MySQL por JDBC antes de enrutar a Kafka. La rama hot (Cassandra) alimenta dashboards en vivo; la rama cold (HDFS→MapReduce) alimenta la capa served de HBase. Grafana es la <b>capa service</b> y lee de Cassandra, HBase y Elasticsearch."
+};
+
+let activeDiagram="arch";
+const cache={};
+
+function whenMermaid(cb){
+  if(window.mermaid){cb();return;}
+  const t=setInterval(()=>{if(window.mermaid){clearInterval(t);cb();}},60);
+}
+
+async function showDiagram(key){
+  activeDiagram=key;
+  document.querySelectorAll(".dtab").forEach(t=>t.dataset.on = t.dataset.d===key?"1":"0");
+  document.getElementById("dcap").innerHTML=CAPS[key];
+  const wrap=document.getElementById("diagram");
+  if(cache[key]){wrap.innerHTML=cache[key];return;}
+  wrap.innerHTML='<div style="color:#5a6e8c;font-family:monospace;font-size:12px">renderizando…</div>';
+  try{
+    const {svg}=await window.mermaid.render("mm_"+key, DIAGRAMS[key]);
+    cache[key]=svg;
+    if(activeDiagram===key) wrap.innerHTML=svg;
+  }catch(err){
+    wrap.innerHTML='<pre style="color:#ff5d7a;white-space:pre-wrap;font-size:12px">'+err.message+'</pre>';
+  }
+}
+
+document.querySelector(".dtabs").addEventListener("click",e=>{
+  const t=e.target.closest(".dtab"); if(t) showDiagram(t.dataset.d);
+});
+
+whenMermaid(()=>{
+  window.mermaid.initialize({
+    startOnLoad:false,
+    theme:"base",
+    themeVariables:{
+      darkMode:true,
+      background:"#0a101c",
+      primaryColor:"#10203a",
+      primaryBorderColor:"#27405f",
+      primaryTextColor:"#dbe6f5",
+      secondaryColor:"#13203a",
+      tertiaryColor:"#0d1626",
+      lineColor:"#7088aa",
+      clusterBkg:"#0b1322",
+      clusterBorder:"#27405f",
+      titleColor:"#f5b942",
+      edgeLabelBackground:"#0a101c",
+      fontFamily:"IBM Plex Mono, monospace",
+      fontSize:"13px"
+    },
+    flowchart:{curve:"basis",htmlLabels:true,padding:14}
+  });
+  showDiagram("arch");
+});
+</script>

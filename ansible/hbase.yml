@@ -1,0 +1,26 @@
+---
+# ============================================================================
+# Despliega el clúster HBase 3 nodos en gcp-b (capa SERVED del Lambda stack).
+#
+# Prerequisitos:
+#   - HDFS corriendo en la nube local (10.10.1.21:9000) — rootdir de HBase.
+#   - WireGuard operativo: gcp-b puede alcanzar 10.10.1.21 via 10.0.0.10.
+#   - Imagen hbase:{{ image_tag }} construida y subida al Artifact Registry de gcp-b.
+#     docker build -t <registry>/hbase:<tag> docker/hbase/ && docker push ...
+#
+# Orden dentro del play:
+#   1. Instalar/actualizar Docker (rol docker).
+#   2. Levantar HBase (master en node-01, RS en los 3, REST en node-01).
+#   3. Crear tabla webhardmon_hourly (idempotente, solo en node-01).
+#
+# ansible-playbook -i ansible/inventory.ini ansible/hbase.yml
+# ============================================================================
+
+- name: Desplegar HBase en gcp-b
+  hosts: hbase
+  gather_facts: true       # necesario para ansible_default_ipv4.address
+  become: false
+  serial: 1                # node-01 primero (Master + ZK líder), luego RS
+  roles:
+    - docker
+    - hbase

@@ -1,0 +1,32 @@
+---
+# ============================================================================
+# Despliega Apache NiFi + cloudflared en el CT de la nube local.
+#
+# Prerequisitos:
+#   - Kafka y Schema Registry levantados en gcp-a.
+#   - MySQL levantado en gcp-b (para lookup de licencias JDBC).
+#   - WireGuard activo (local ↔ gcp-a ↔ gcp-b).
+#   - Token de cloudflared disponible en vault_cloudflared_tunnel_token
+#     (obtener con: tofu output -raw cloudflared_tunnel_token).
+#   - Imagen nifi:{{ image_tag }} construida y en Harbor local.
+#
+# Pasar el token de vault:
+#   ansible-playbook -i ansible/inventory.ini ansible/nifi.yml \
+#     -e "vault_cloudflared_tunnel_token=<token>"
+#
+# O configurarlo en ansible/group_vars/all.yml vía ansible-vault encrypt_string.
+#
+# ansible-playbook -i ansible/inventory.ini ansible/nifi.yml
+# ============================================================================
+
+- name: Recopilar facts de todos los nodos (para resolver hostvars en group_vars/nifi.yml)
+  hosts: all
+  gather_facts: true
+  tasks: []
+
+- name: Desplegar NiFi + cloudflared en la nube local
+  hosts: nifi
+  gather_facts: false
+  roles:
+    - docker
+    - nifi

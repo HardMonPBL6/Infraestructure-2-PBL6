@@ -1,0 +1,88 @@
+---
+# roles/matomo/tasks/main.yml
+#
+# Despliega Matomo Analytics + su MySQL dedicado (gcp-b node-01, red gestión).
+#
+# Red de gestión vs datos:
+#   - node-01 es el gateway de gcp-b (subred pública 10.30.1.x).
+#   - Puerto 8282 (host) → 80 (container): UI de Matomo, accesible desde:
+#       · Red gestión: http://10.0.0.30:8282 (WireGuard desde nodo de gestión)
+#       · Webapp Spring Boot: inserta el snippet JS de tracking apuntando aquí
+#   - NOTA: se usa 8282 (no 8080) porque la webapp Spring Boot ocupa el 8080.
+#     Ajustar group_vars/matomo.yml si la webapp está en otro nodo.
+#
+# matomo-mysql es una instancia MySQL DEDICADA a Matomo (no comparte con telemetriadb).
+# Escucha en puerto 3308 (host) para no colisionar con posible MySQL en el mismo nodo.
+# Comunicación Matomo → matomo-mysql: vía localhost:3308 (loopback, mismo host).
+
+# ── MySQL dedicado a Matomo ───────────────────────────────────────────────────
+
+- name: Crear volumen para los datos de matomo-mysql
+  community.docker.docker_volume:
+    name: matomo-mysql-data
+    state: present
+
+- name: Levantar matomo-mysql (MySQL 8.0 dedicado, puerto host 3308)
+  community.docker.docker_container:
+    name: matomo-mysql
+    image: "{{ matomo_mysql_image }}"
+    pull: true
+    restart_policy: unless-stopped
+    network_mode: host
+    ports:
+      - "3308:3306"
+    env:
+      MYSQL_ROOT_PASSWORD: "{{ vault_matomo_mysql_root_password | default('changeme-matomo-root') }}"
+      MYSQL_DATABASE:      "{{ matomo_mysql_database }}"
+      MYSQL_USER:          "{{ matomo_mysql_user }}"
+      MYSQL_PASSWORD:      "{{ vault_matomo_mysql_password | default('changeme-matomo') }}"
+    volumes:
+      - "matomo-mysql-data:/var/lib/mysql"
+    state: started
+
+- name: Esperar a que matomo-mysql esté listo (puerto 3308)
+  wait_for:
+    host: "127.0.0.1"
+    port: 3308
+    timeout: 90
+
+# ── Matomo ───────────────────────────────────────────────────────────────────
+
+- name: Crear volumen para los datos de Matomo (config, plugins)
+  community.docker.docker_volume:
+    name: matomo-data
+    state: present
+
+- name: Levantar contenedor Matomo (puerto 8282 → evita conflicto con webapp 8080)
+  community.docker.docker_container:
+    name: matomo
+    image: "{{ matomo_image }}"
+    pull: true
+    restart_policy: unless-stopped
+    network_mode: host
+    ports:
+      - "8282:80"
+    env:
+      # matomo-mysql corre en el mismo host: conectar vía loopback (host networking).
+      MATOMO_DATABASE_HOST:     "127.0.0.1"
+      MATOMO_DATABASE_PORT:     "3308"
+      MATOMO_DATABASE_ADAPTER:  "mysql"
+      MATOMO_DATABASE_DBNAME:   "{{ matomo_mysql_database }}"
+      MATOMO_DATABASE_USERNAME: "{{ matomo_mysql_user }}"
+      MATOMO_DATABASE_PASSWORD: "{{ vault_matomo_mysql_password | default('changeme-matomo') }}"
+    volumes:
+      - "matomo-data:/var/www/html/config"
+    state: started
+
+- name: Esperar a que Matomo esté disponible (puerto 8282)
+  wait_for:
+    host: "127.0.0.1"
+    port: 8282
+    timeout: 60
+
+- name: Mostrar URL de acceso a Matomo
+  debug:
+    msg:
+      - "Matomo UI: http://{{ ansible_host }}:8282"
+      - "Completar instalación web en el primer acceso (wizard de configuración)."
+      - "DB host en el wizard: 127.0.0.1:3308, BD: {{ matomo_mysql_database }}"

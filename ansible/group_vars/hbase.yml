@@ -17,3 +17,28 @@ hbase_zk_quorum: "{{ hbase_regionservers | join(',') }}"
 
 # Pre-split de regiones (sharding, requisito N2).
 hbase_presplit_regions: 8
+
+# ---------------------------------------------------------------------------
+# Variables usadas por roles/hbase y por el job MapReduce.
+# ---------------------------------------------------------------------------
+
+# Quorum ZK con IPs INTERNAS de gcp-b (las que los contenedores se ven entre
+# sí). Diferente de hbase_zk_quorum que usa los ansible_host (WireGuard para
+# node-01). El job MR en la nube local alcanza estas IPs vía WireGuard routing.
+hbase_zk_internal_quorum: "10.30.1.10,10.30.2.11,10.30.2.12"
+hbase_zk_client_port: 2181
+
+# HDFS raíz de HBase — la misma instancia que el batch layer (nube local).
+# GCP-B accede a ella vía WireGuard (10.0.0.10 = gateway local → 10.10.1.21).
+hbase_hdfs_rootdir: "hdfs://10.10.1.21:9000/hbase"
+
+# Tabla de agregados batch creada automáticamente por el rol.
+# Row key: {licencia}|{ramGb}|{stoGb}|{yyyyMMddHH}
+#   — segmentado por tier de hardware (ramGb, stoGb en GB enteros) para que
+#     los percentiles de uso sean comparables entre portátiles de igual capacidad.
+hbase_table_name: "webhardmon_hourly"
+hbase_column_family: "m"
+hbase_table_ttl_seconds: 7776000   # 90 días de retención en la capa served
+
+# Puerto del servidor REST HBase (para webapp/Grafana).
+hbase_rest_port: 8085

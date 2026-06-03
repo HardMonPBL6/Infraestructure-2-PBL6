@@ -340,8 +340,10 @@ variable "gcp_a_nodes" {
     public = bool
   }))
   default = [
+    # node-01 público: gateway WireGuard + Schema Registry (singleton)
     { roles = ["kafka", "zookeeper", "cassandra", "schema_registry"], public = true },
-    { roles = ["kafka", "zookeeper", "cassandra", "java"], public = false },
+    # node-02: java_bridge (puente Kafka→RMI→Cassandra, 1 instancia)
+    { roles = ["kafka", "zookeeper", "cassandra", "java", "java_bridge"], public = false },
     { roles = ["kafka", "zookeeper", "cassandra", "java"], public = false },
   ]
 }
@@ -353,10 +355,11 @@ variable "gcp_b_nodes" {
     public = bool
   }))
   default = [
-    # node-01 publico: UI/servicio (Grafana + Matomo necesitan acceso desde internet)
-    { roles = ["hbase", "grafana", "matomo"], public = true },
+    # node-01 público: UI/servicio (Grafana, Matomo, Web panel, HBase Master)
+    { roles = ["hbase", "grafana", "matomo", "web"], public = true },
     { roles = ["hbase", "mysql"], public = false },
-    { roles = ["hbase", "elasticsearch"], public = false },
+    # node-03: solo HBase RS (Elasticsearch eliminado de la arquitectura final)
+    { roles = ["hbase"], public = false },
   ]
 }
 

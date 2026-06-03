@@ -1,0 +1,27 @@
+---
+# ============================================================================
+# Despliega el anillo Cassandra de 3 nodos en gcp-a.
+#
+# Prerequisitos:
+#   - Imagen cassandra:{{ image_tag }} construida y en Artifact Registry gcp-a.
+#   - VMs gcp-a provisionadas. No depende de ZooKeeper ni Kafka.
+#
+# IMPORTANTE: desplegar con serial=1 para que el seed node-01 esté UP antes de
+# que node-02/03 intenten unirse al anillo. Cassandra falla el bootstrap si los
+# seeds no son alcanzables al arrancar.
+#
+# ansible-playbook -i ansible/inventory.ini ansible/cassandra.yml
+# ============================================================================
+
+- name: Recopilar facts de nodos gcp-a
+  hosts: cloud_gcp_a
+  gather_facts: true
+  tasks: []
+
+- name: Desplegar anillo Cassandra en gcp-a
+  hosts: cassandra
+  gather_facts: false
+  serial: 1              # seed primero, luego followers
+  roles:
+    - docker
+    - cassandra

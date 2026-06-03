@@ -1,0 +1,30 @@
+---
+# ============================================================================
+# Despliega Matomo Analytics + MySQL dedicado en gcp-b node-01.
+#
+# Prerequisitos:
+#   - Imagen matomo:{{ image_tag }} en Artifact Registry gcp-b.
+#   - VM gcp-b node-01 provisionada.
+#   - Credenciales en ansible-vault: vault_matomo_mysql_password,
+#     vault_matomo_mysql_root_password.
+#
+# Puerto: 8282 (Matomo) — no 8080 para evitar conflicto con la webapp en ese puerto.
+# matomo-mysql: puerto 3308 (local, no expuesto externamente).
+#
+# PRIMER ARRANQUE: acceder a http://<node-01>:8282 y completar el wizard de
+# instalación web de Matomo (crea las tablas en matomo-mysql automáticamente).
+#
+# ansible-playbook -i ansible/inventory.ini ansible/matomo.yml
+# ============================================================================
+
+- name: Recopilar facts de nodos gcp-b
+  hosts: cloud_gcp_b
+  gather_facts: true
+  tasks: []
+
+- name: Desplegar Matomo + matomo-mysql en gcp-b node-01
+  hosts: matomo
+  gather_facts: false
+  roles:
+    - docker
+    - matomo

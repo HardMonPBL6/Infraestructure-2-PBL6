@@ -1,0 +1,31 @@
+---
+# roles/hbase/defaults/main.yml — valores por defecto del rol HBase.
+# Las variables de negocio (heaps, imagen, pre-split) vienen de group_vars/hbase.yml.
+
+# HDFS donde HBase guarda sus HFiles — la misma instancia que usa el batch MR.
+hbase_hdfs_rootdir: "hdfs://10.10.1.21:9000/hbase"
+
+# Quorum ZK interno de GCP-B (IPs internas, alcanzables entre los 3 nodos).
+# Construido dinámicamente si se prefiere: ver group_vars/hbase.yml.
+hbase_zk_internal_quorum: "10.30.1.10,10.30.2.11,10.30.2.12"
+hbase_zk_client_port: 2181
+
+# Puerto REST (para Grafana/web app; diferente del 8080 de NiFi/web).
+hbase_rest_port: 8085
+
+# Directorio de datos del ZK embebido en el contenedor.
+hbase_zk_data_dir: "/hbase-zk"
+
+# Tabla de agregados batch que crea el rol.
+hbase_table_name: "webhardmon_hourly"
+hbase_column_family: "m"
+hbase_table_ttl_seconds: 7776000   # 90 días
+hbase_presplit_regions: 8          # sobreescrito desde group_vars/hbase.yml
+
+# Nombre del contenedor Master (sufijo) y RegionServer.
+hbase_master_container: "hbase-master"
+hbase_rs_container: "hbase-regionserver"
+hbase_rest_container: "hbase-rest"
+
+# Ruta donde se monta hbase-site.xml en el host antes de pasarla al contenedor.
+hbase_conf_dir: "/etc/webhardmon/hbase"

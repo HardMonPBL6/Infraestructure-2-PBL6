@@ -14,18 +14,28 @@
 # 1) Endurecimiento (cambia el puerto SSH; debe ir PRIMERO).
 - import_playbook: security.yml
 
-# 2) Servicios base — PENDIENTE de roles (los añade el equipo, mismo patrón
-#    que roles/stressscore: roles/<svc> + <svc>.yml). Dependencias de orden:
-#    zookeeper -> kafka -> schema_registry ; cassandra ; mysql ; nifi ; hbase ; elasticsearch ; grafana.
-# - import_playbook: zookeeper.yml
-# - import_playbook: kafka.yml
-# - import_playbook: schema_registry.yml
-# - import_playbook: cassandra.yml
-# - import_playbook: mysql.yml
-# - import_playbook: nifi.yml
-# - import_playbook: hbase.yml
-# - import_playbook: elasticsearch.yml
-# - import_playbook: grafana.yml
+# 2) Servicios base — roles creados. Dependencias de orden:
+#    zookeeper → kafka → schema_registry
+#    cassandra  (independiente de ZK/Kafka)
+#    mysql      (independiente)
+#    nifi       (requiere kafka + schema_registry + mysql)
+#    hbase      (requiere HDFS en nube local)
+#    grafana    (requiere cassandra + mysql + hbase)
+#    matomo     (independiente)
+#    mapreduce  (requiere hbase + HDFS)
+#
+# Descomentar en orden para el despliegue completo:
+- import_playbook: zookeeper.yml
+- import_playbook: kafka.yml
+- import_playbook: schema_registry.yml
+- import_playbook: cassandra.yml
+- import_playbook: mysql.yml
+- import_playbook: nifi.yml
+# - import_playbook: hbase.yml          # capa SERVED: requiere HDFS local activo
+# - import_playbook: elasticsearch.yml  # pendiente de rol
+- import_playbook: grafana.yml
+- import_playbook: matomo.yml
+# - import_playbook: mapreduce.yml      # batch job: requiere hbase + HDFS
 
 # 3) Aplicaciones (ya tienen rol + playbook).
 - import_playbook: stressscore.yml   # nodos RMI + puente (gcp-a)

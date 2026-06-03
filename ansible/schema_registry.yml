@@ -1,0 +1,22 @@
+---
+# ============================================================================
+# Despliega Confluent Schema Registry en gcp-a node-01 (singleton).
+#
+# Prerequisitos:
+#   - Kafka cluster levantado (ansible/kafka.yml).
+#   - Imagen schema-registry:{{ image_tag }} en Artifact Registry gcp-a.
+#
+# ansible-playbook -i ansible/inventory.ini ansible/schema_registry.yml
+# ============================================================================
+
+- name: Recopilar facts de nodos gcp-a
+  hosts: cloud_gcp_a
+  gather_facts: true
+  tasks: []
+
+- name: Desplegar Schema Registry en gcp-a node-01
+  hosts: schema_registry
+  gather_facts: false
+  roles:
+    - docker
+    - schema_registry

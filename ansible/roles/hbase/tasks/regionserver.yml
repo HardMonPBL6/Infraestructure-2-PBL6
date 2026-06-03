@@ -1,0 +1,18 @@
+---
+# Levanta el contenedor RegionServer en TODOS los nodos del grupo [hbase]
+# (incluyendo node-01 que también es Master — HBase soporta co-localización).
+
+- name: Levantar HBase RegionServer
+  community.docker.docker_container:
+    name: "{{ hbase_rs_container }}"
+    image: "{{ hbase_image }}"
+    pull: true
+    restart_policy: unless-stopped
+    network_mode: host
+    env:
+      HBASE_ROLE: "regionserver"
+      JAVA_TOOL_OPTIONS: "-Xmx{{ hbase_regionserver_heap_mb }}m -Xms{{ hbase_regionserver_heap_mb }}m"
+    volumes:
+      - "{{ hbase_conf_dir }}/hbase-site.xml:/opt/hbase/conf/hbase-site.xml:ro"
+      - "hbase-zk-data:{{ hbase_zk_data_dir }}"
+    state: started

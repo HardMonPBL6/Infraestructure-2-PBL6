@@ -1,0 +1,29 @@
+---
+# ============================================================================
+# Despliega Grafana en gcp-b node-01 (subred pública — red de gestión).
+#
+# Prerequisitos:
+#   - Cassandra levantada en gcp-a (datasource cassandra-hot).
+#   - MySQL levantado en gcp-b node-02 (datasource mysql-telemetria).
+#   - HBase levantado en gcp-b (datasource hbase-rest, opcional).
+#   - Imagen grafana:{{ image_tag }} en Artifact Registry gcp-b.
+#   - Plugin hadesarchitect-cassandra-datasource en la imagen o instalado via env.
+#
+# Pasar credenciales de vault:
+#   ansible-playbook -i ansible/inventory.ini ansible/grafana.yml \
+#     --ask-vault-pass
+#
+# ansible-playbook -i ansible/inventory.ini ansible/grafana.yml
+# ============================================================================
+
+- name: Recopilar facts de todos los nodos (para resolver IPs en el template datasources)
+  hosts: all
+  gather_facts: true
+  tasks: []
+
+- name: Desplegar Grafana en gcp-b node-01
+  hosts: grafana
+  gather_facts: false
+  roles:
+    - docker
+    - grafana

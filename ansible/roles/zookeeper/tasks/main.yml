@@ -1,0 +1,66 @@
+---
+# roles/zookeeper/tasks/main.yml
+#
+# Despliega un nodo ZooKeeper del ensemble de 3 (uno por VM gcp-a).
+#
+# Red de gestión vs datos:
+#   - La VM de gestión (node-01, subred pública 10.20.1.x) es el gateway WireGuard.
+#     Su IP interna GCP (inventory_hostname) es la que ZK anuncia para el cliente.
+#   - Las VMs de datos (node-02/03, subred privada 10.20.2.x) solo son alcanzables
+#     dentro de la VPC de GCP-A o vía WireGuard routing desde otras nubes.
+#   - ZK escucha en todas las interfaces (0.0.0.0) pero se identifica como
+#     inventory_hostname (IP interna GCP) ante el ensemble y los clientes.
+#
+# Ensemble: server.N=<ip>:2888:3888 con las IPs internas de los 3 nodos.
+# myid determinista por posición en el grupo → estable tras preempción spot.
+
+- name: Crear volumen de datos ZooKeeper
+  community.docker.docker_volume:
+    name: zookeeper-data
+    state: present
+
+- name: Crear volumen de logs ZooKeeper
+  community.docker.docker_volume:
+    name: zookeeper-logs
+    state: present
+
+- name: Levantar contenedor ZooKeeper
+  community.docker.docker_container:
+    name: zookeeper
+    image: "{{ zookeeper_image }}"
+    pull: true
+    restart_policy: unless-stopped
+    network_mode: host
+    env:
+      # Identidad del nodo en el ensemble (1..N, determinista por posición en el grupo).
+      ZOOKEEPER_SERVER_ID: "{{ zookeeper_myid | string }}"
+      ZOOKEEPER_CLIENT_PORT: "{{ zookeeper_client_port | string }}"
+      ZOOKEEPER_TICK_TIME: "2000"
+      ZOOKEEPER_INIT_LIMIT: "5"
+      ZOOKEEPER_SYNC_LIMIT: "2"
+      ZOOKEEPER_MAX_CLIENT_CNXNS: "60"
+      # server.N=ip:peerPort:leaderPort para cada nodo del ensemble.
+      # Usa IPs internas GCP (inventory_hostname de cada miembro del grupo).
+      # Red datos: tráfico 2888/3888 entre nodos de la misma VPC GCP-A.
+      ZOOKEEPER_SERVERS: >-
+        {{ groups['zookeeper']
+           | map('regex_replace', '$', ':2888:3888')
+           | join(';') }}
+      # Heap acotado al presupuesto del nodo (gcp-a node-02/03 lleva Kafka+Cassandra+Java).
+      KAFKA_HEAP_OPTS: "-Xms{{ zookeeper_heap_mb }}m -Xmx{{ zookeeper_heap_mb }}m"
+    volumes:
+      - "zookeeper-data:/var/lib/zookeeper/data"
+      - "zookeeper-logs:/var/lib/zookeeper/log"
+    state: started
+
+- name: Esperar a que ZooKeeper acepte conexiones (puerto {{ zookeeper_client_port }})
+  wait_for:
+    host: "127.0.0.1"
+    port: "{{ zookeeper_client_port }}"
+    timeout: 60
+
+- name: Verificar salud del nodo ZK (ruok)
+  shell: "echo ruok | nc -w 2 127.0.0.1 {{ zookeeper_client_port }}"
+  register: zk_ruok
+  changed_when: false
+  failed_when: zk_ruok.stdout != 'imok'

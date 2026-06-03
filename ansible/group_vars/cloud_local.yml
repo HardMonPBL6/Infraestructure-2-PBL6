@@ -1,0 +1,18 @@
+---
+# group_vars/cloud_local.yml — nube local (Proxmox LXC).
+# Aplica a todos los hosts del grupo [cloud_local] generado por OpenTofu.
+
+# Registro de contenedores local: Harbor en el nodo Proxmox dedicado.
+# Los LXC hacen docker pull/push contra esta dirección.
+# Para que funcione docker pull, el LXC debe tener harbor en insecure-registries
+# (HTTP sin TLS) o Harbor configurado con TLS. Ver HDFS/README.md.
+container_registry_local: "10.10.1.50:5000"
+
+# Para el rol docker: autentica contra Harbor con usuario/contraseña.
+# docker_registry_host vacío = el rol omite gcloud auth (no GCP).
+docker_registry_host: ""
+harbor_registry: "10.10.1.50:5000"
+
+# La nube local no usa Spot VMs (son LXC Proxmox persistentes).
+node_is_spot: false
+node_ephemeral_data: false

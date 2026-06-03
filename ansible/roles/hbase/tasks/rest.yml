@@ -1,0 +1,19 @@
+---
+# Servidor REST HBase en el nodo Master — permite que la webapp y Grafana
+# consulten los agregados batch sin necesidad de Phoenix.
+# Puerto 8085 (evita colisión con NiFi 8080 y web 8080).
+
+- name: Levantar HBase REST server
+  community.docker.docker_container:
+    name: "{{ hbase_rest_container }}"
+    image: "{{ hbase_image }}"
+    pull: false
+    restart_policy: unless-stopped
+    network_mode: host
+    env:
+      HBASE_ROLE: "rest"
+      HBASE_REST_PORT: "{{ hbase_rest_port | string }}"
+      JAVA_TOOL_OPTIONS: "-Xmx256m"
+    volumes:
+      - "{{ hbase_conf_dir }}/hbase-site.xml:/opt/hbase/conf/hbase-site.xml:ro"
+    state: started

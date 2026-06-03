@@ -1,0 +1,70 @@
+---
+# roles/mysql/tasks/main.yml
+#
+# Despliega MySQL (singleton en gcp-b node-02, subred privada 10.30.2.x).
+#
+# Red de gestión vs datos:
+#   - node-02 está en la SUBRED PRIVADA de gcp-b (red de datos).
+#     NO tiene IP pública ni es gateway WireGuard.
+#   - MySQL escucha en 0.0.0.0 (firewall GCP ya restringe el acceso al VPC).
+#     Accesible desde dentro de gcp-b VPC y vía WireGuard routing:
+#       · Web app (gcp-b node-01): localhost dentro VPC → 10.30.2.11:3307
+#       · NiFi (nube local): via WireGuard → 10.30.2.11:3307
+#       · Grafana (gcp-b node-01): via VPC → 10.30.2.11:3307
+#   - El puerto del host es 3307 (el Dockerfile mapea 3307→3306 internamente).
+#     Esto permite co-alojar otros servicios MySQL si fuera necesario.
+#
+# El init.sql (copiado en la imagen) crea el esquema y datos de prueba la
+# primera vez que se inicializa el volumen. Idempotente por diseño.
+
+- name: Crear directorio para datos MySQL en el host
+  file:
+    path: /var/lib/webhardmon/mysql
+    state: directory
+    mode: "0700"
+
+- name: Crear volumen persistente MySQL
+  community.docker.docker_volume:
+    name: mysql-data
+    state: present
+
+- name: Levantar contenedor MySQL (red datos gcp-b, subred privada)
+  community.docker.docker_container:
+    name: mysql
+    image: "{{ mysql_image }}"
+    pull: true
+    restart_policy: unless-stopped
+    network_mode: host
+    ports:
+      - "{{ mysql_port }}:3306"
+    env:
+      MYSQL_ROOT_PASSWORD:     "{{ vault_mysql_root_password | default('changeme-root') }}"
+      MYSQL_DATABASE:          "{{ mysql_database }}"
+      MYSQL_USER:              "{{ mysql_app_user | default('webhardmon') }}"
+      MYSQL_PASSWORD:          "{{ vault_mysql_app_password | default('changeme-app') }}"
+      # InnoDB buffer pool: acotado para convivir con HBase RS (3 GB) en node-02.
+      MYSQL_INNODB_BUFFER_POOL_SIZE: "{{ mysql_innodb_buffer_pool_mb }}M"
+    volumes:
+      - "mysql-data:/var/lib/mysql"
+    state: started
+
+- name: Esperar a que MySQL acepte conexiones (puerto {{ mysql_port }})
+  wait_for:
+    host: "127.0.0.1"
+    port: "{{ mysql_port }}"
+    timeout: 120
+
+- name: Verificar que la base de datos existe
+  command: >
+    docker exec mysql mysql
+    -u{{ mysql_app_user | default('webhardmon') }}
+    -p{{ vault_mysql_app_password | default('changeme-app') }}
+    -e "SHOW DATABASES LIKE '{{ mysql_database }}';"
+  register: db_check
+  changed_when: false
+  no_log: true
+
+- name: Confirmar esquema
+  debug:
+    msg: "Base de datos '{{ mysql_database }}' disponible en 127.0.0.1:{{ mysql_port }}"
+  when: mysql_database in db_check.stdout

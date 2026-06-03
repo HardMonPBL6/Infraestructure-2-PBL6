@@ -1,0 +1,39 @@
+#!/bin/bash
+# run-webhardmon-aggregation.sh — generado por Ansible (roles/mapreduce).
+# Ejecuta el job MapReduce de agregación dentro del contenedor HDFS NameNode.
+# Cron: {{ mr_cron_minute }} {{ mr_cron_hour }} * * *  (cada hora a :{{ mr_cron_minute }})
+
+set -euo pipefail
+
+CONTAINER="{{ mr_namenode_container }}"
+JAR="{{ mr_jar_container_path }}"
+MAIN="com.webhardmon.mr.MetricsAggregationJob"
+
+INPUT_PATH="{{ mr_hdfs_input_path }}"
+HBASE_TABLE="{{ mr_hbase_table }}"
+ZK_QUORUM="{{ mr_hbase_zk_quorum }}"
+ZK_PORT="{{ mr_hbase_zk_port }}"
+
+LOGFILE="/var/log/webhardmon-mr-$(date +%Y%m%d%H).log"
+
+echo "[$(date -u +%FT%TZ)] Iniciando job MapReduce WebHardMon" | tee "${LOGFILE}"
+
+docker exec "${CONTAINER}" \
+  hadoop jar "${JAR}" "${MAIN}" \
+    "${INPUT_PATH}" \
+    "${HBASE_TABLE}" \
+    "${ZK_QUORUM}" \
+    "${ZK_PORT}" \
+  2>&1 | tee -a "${LOGFILE}"
+
+EXIT_CODE=${PIPESTATUS[0]}
+
+if [ "${EXIT_CODE}" -eq 0 ]; then
+  echo "[$(date -u +%FT%TZ)] Job completado correctamente" | tee -a "${LOGFILE}"
+else
+  echo "[$(date -u +%FT%TZ)] ERROR: job falló con código ${EXIT_CODE}" | tee -a "${LOGFILE}"
+  exit "${EXIT_CODE}"
+fi
+
+# Rotar logs: conservar solo los últimos 7 días
+find /var/log -name "webhardmon-mr-*.log" -mtime +7 -delete 2>/dev/null || true

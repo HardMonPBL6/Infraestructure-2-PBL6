@@ -1,0 +1,56 @@
+# /etc/grafana/provisioning/datasources/webhardmon.yml
+# Generado por Ansible (roles/grafana). NO editar a mano.
+#
+# Fuentes de datos de WebHardMon:
+#   - cassandra-hot   : datos en vivo (streaming), anillo gcp-a vía WireGuard
+#   - mysql-telemetria: BD de la aplicación (empresas, licencias), gcp-b node-02
+#   - hbase-rest      : agregados batch (MapReduce → HBase), gcp-b node-01 REST API
+
+apiVersion: 1
+
+datasources:
+
+  # ── Cassandra — capa HOT (streaming, datos recientes) ─────────────────────
+  # Plugin de comunidad: hadesarchitect-cassandra-datasource.
+  # Tráfico: Grafana (gcp-b node-01, subred pública) → Cassandra (gcp-a node-01,
+  # 10.20.1.10:9042) vía WireGuard. Los nodos seed (10.20.1.10) son alcanzables
+  # desde la red de gestión; node-02/03 vía WireGuard routing.
+  - name: cassandra-hot
+    type: hadesarchitect-cassandra-datasource
+    access: proxy
+    url: "{{ groups['cassandra'][0] }}:9042"
+    isDefault: false
+    jsonData:
+      keyspace: "{{ cassandra_keyspace }}"
+      user: cassandra
+      consistency: LOCAL_ONE
+      timeout: 30
+    secureJsonData:
+      password: "{{ vault_cassandra_password | default('cassandra') }}"
+
+  # ── MySQL — BD de la aplicación (empresas, admins, licencias) ─────────────
+  # Tráfico: Grafana (gcp-b node-01) → MySQL (gcp-b node-02, 10.30.2.11:3307)
+  # vía VPC interna de gcp-b (red de datos, latencia baja).
+  - name: mysql-telemetria
+    type: mysql
+    access: proxy
+    url: "{{ groups['mysql'][0] }}:{{ mysql_port | default(3307) }}"
+    database: "{{ mysql_database | default('telemetriadb') }}"
+    user: "{{ mysql_app_user | default('webhardmon') }}"
+    isDefault: false
+    secureJsonData:
+      password: "{{ vault_mysql_app_password | default('changeme-app') }}"
+
+  # ── HBase REST — capa SERVED (agregados batch, histórico) ─────────────────
+  # Acceso vía API REST de HBase (puerto 8085 en gcp-b node-01, mismo host).
+  # Tráfico: local (Grafana y HBase REST en el mismo nodo gcp-b node-01).
+  # Plugin: JSON API o Infinity (instalar en Grafana con grafana-cli).
+  # Endpoint de ejemplo para una licencia+hora:
+  #   GET http://localhost:8085/webhardmon_hourly/<licencia>|<yyyyMMddHH>
+  - name: hbase-rest
+    type: marcusolsson-json-datasource
+    access: proxy
+    url: "http://localhost:{{ hbase_rest_port | default(8085) }}"
+    isDefault: false
+    jsonData:
+      httpMethod: GET

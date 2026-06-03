@@ -1,0 +1,29 @@
+---
+# ============================================================================
+# Despliega el ensemble ZooKeeper de 3 nodos en gcp-a.
+#
+# Prerequisitos:
+#   - Imagen zookeeper:{{ image_tag }} construida y en Artifact Registry gcp-a.
+#   - VMs gcp-a provisionadas y WireGuard activo.
+#
+# Orden de despliegue: serial=1 para que node-01 (futuro líder) arranque primero
+# y los followers puedan unirse al ensemble de forma controlada.
+#
+# ansible-playbook -i ansible/inventory.ini ansible/zookeeper.yml
+# ============================================================================
+
+# Recopilar facts de todos los nodos gcp-a antes de desplegar.
+# Necesario para que hostvars esté poblado si algún template hace referencia
+# a IPs de otros hosts del grupo.
+- name: Recopilar facts de nodos gcp-a
+  hosts: cloud_gcp_a
+  gather_facts: true
+  tasks: []
+
+- name: Desplegar ZooKeeper en gcp-a
+  hosts: zookeeper
+  gather_facts: false    # ya recogidos en el play anterior
+  serial: 1
+  roles:
+    - docker
+    - zookeeper

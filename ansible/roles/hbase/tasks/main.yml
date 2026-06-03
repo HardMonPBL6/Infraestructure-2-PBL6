@@ -1,0 +1,40 @@
+---
+# roles/hbase/tasks/main.yml
+# Genera hbase-site.xml en el host y arranca el rol correcto (Master o RS).
+# En el primer nodo del grupo [hbase] también levanta el servidor REST.
+
+- name: Crear directorio de configuración HBase
+  file:
+    path: "{{ hbase_conf_dir }}"
+    state: directory
+    mode: "0755"
+
+- name: Renderizar hbase-site.xml
+  template:
+    src: hbase-site.xml.j2
+    dest: "{{ hbase_conf_dir }}/hbase-site.xml"
+    mode: "0644"
+  notify:
+    - restart hbase
+
+- name: Desplegar HMaster (node-01)
+  import_tasks: master.yml
+  when: hbase_is_master | bool
+
+- name: Desplegar RegionServer
+  import_tasks: regionserver.yml
+
+- name: Desplegar servidor REST (solo en master)
+  import_tasks: rest.yml
+  when: hbase_is_master | bool
+
+- name: Esperar a que HMaster esté listo (puerto 16000)
+  wait_for:
+    host: "{{ ansible_default_ipv4.address }}"
+    port: 16000
+    timeout: 120
+  when: hbase_is_master | bool
+
+- name: Crear tablas HBase (solo en master, una vez)
+  import_tasks: create_tables.yml
+  when: hbase_is_master | bool

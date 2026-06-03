@@ -1,0 +1,70 @@
+---
+# roles/kafka/tasks/main.yml
+#
+# Despliega un broker Kafka (uno por VM gcp-a, co-alojado con ZooKeeper).
+#
+# Red de gestión vs datos:
+#   - Un único listener PLAINTEXT en puerto 9092 anunciado con la IP interna GCP
+#     (inventory_hostname). Es accesible desde otras nubes vía WireGuard routing:
+#     10.20.1.10 (node-01 → subred pública) y 10.20.2.11/12 (node-02/03 → privada)
+#     son alcanzables desde la nube local y GCP-B por la malla WireGuard.
+#   - El inter-broker también usa el mismo listener (mismo VPC → latencia baja).
+#   - Clientes externos (NiFi local): usan los ansible_host del inventario como
+#     bootstrap (WireGuard IP de node-01 + IPs internas de node-02/03, todas
+#     accesibles vía WireGuard routing).
+#
+# broker.id determinista por posición en el grupo → mismo id tras preempción.
+
+- name: Crear volumen de logs Kafka
+  community.docker.docker_volume:
+    name: kafka-logs
+    state: present
+
+- name: Levantar broker Kafka
+  community.docker.docker_container:
+    name: kafka
+    image: "{{ kafka_image }}"
+    pull: true
+    restart_policy: unless-stopped
+    network_mode: host
+    env:
+      # Identidad del broker (0..N-1, determinista por posición en el grupo).
+      KAFKA_BROKER_ID: "{{ kafka_broker_id | string }}"
+      # ZooKeeper: ensemble local en gcp-a (IPs internas, misma VPC).
+      KAFKA_ZOOKEEPER_CONNECT: "{{ kafka_zookeeper_connect }}"
+      # Listener único: escucha en todas las interfaces, anuncia la IP interna GCP.
+      # Red datos: tráfico 9092 entre brokers y hacia clientes vía VPC/WireGuard.
+      KAFKA_LISTENERS: "PLAINTEXT://0.0.0.0:{{ kafka_port }}"
+      KAFKA_ADVERTISED_LISTENERS: "{{ kafka_advertised_listener }}"
+      KAFKA_LISTENER_SECURITY_PROTOCOL_MAP: "PLAINTEXT:PLAINTEXT"
+      KAFKA_INTER_BROKER_LISTENER_NAME: "PLAINTEXT"
+      # Particionado y replicación (requisito N2).
+      KAFKA_NUM_PARTITIONS: "{{ kafka_default_partitions | string }}"
+      KAFKA_DEFAULT_REPLICATION_FACTOR: "{{ kafka_default_replication_factor | string }}"
+      KAFKA_MIN_INSYNC_REPLICAS: "{{ kafka_min_insync_replicas | string }}"
+      KAFKA_OFFSETS_TOPIC_REPLICATION_FACTOR: "{{ kafka_default_replication_factor | string }}"
+      KAFKA_TRANSACTION_STATE_LOG_REPLICATION_FACTOR: "{{ kafka_default_replication_factor | string }}"
+      KAFKA_TRANSACTION_STATE_LOG_MIN_ISR: "{{ kafka_min_insync_replicas | string }}"
+      KAFKA_AUTO_CREATE_TOPICS_ENABLE: "true"
+      KAFKA_LOG_DIRS: "/var/kafka/logs"
+      KAFKA_LOG_RETENTION_HOURS: "168"
+      KAFKA_HEAP_OPTS: "-Xms{{ kafka_heap_mb }}m -Xmx{{ kafka_heap_mb }}m"
+    volumes:
+      - "kafka-logs:/var/kafka/logs"
+    state: started
+
+- name: Esperar a que Kafka abra el puerto {{ kafka_port }}
+  wait_for:
+    host: "127.0.0.1"
+    port: "{{ kafka_port }}"
+    timeout: 90
+
+- name: Verificar que el broker está registrado en ZooKeeper
+  shell: >
+    docker exec zookeeper zookeeper-shell localhost:{{ zookeeper_client_port }}
+    ls /brokers/ids
+  register: broker_ids
+  changed_when: false
+  retries: 5
+  delay: 5
+  until: kafka_broker_id | string in broker_ids.stdout

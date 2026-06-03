@@ -1,0 +1,28 @@
+---
+# ============================================================================
+# Despliega MySQL en gcp-b node-02 (subred privada — red de datos).
+#
+# Prerequisitos:
+#   - Imagen mysql:{{ image_tag }} en Artifact Registry gcp-b.
+#   - VM gcp-b node-02 provisionada (subred privada 10.30.2.x).
+#   - Credenciales en ansible-vault o variables de entorno:
+#       vault_mysql_root_password, vault_mysql_app_password
+#
+# Pasar credenciales:
+#   ansible-playbook -i ansible/inventory.ini ansible/mysql.yml \
+#     --ask-vault-pass
+#
+# ansible-playbook -i ansible/inventory.ini ansible/mysql.yml
+# ============================================================================
+
+- name: Recopilar facts de nodos gcp-b
+  hosts: cloud_gcp_b
+  gather_facts: true
+  tasks: []
+
+- name: Desplegar MySQL en gcp-b node-02
+  hosts: mysql
+  gather_facts: false
+  roles:
+    - docker
+    - mysql

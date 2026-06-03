@@ -1,0 +1,11 @@
+---
+- name: restart hbase
+  community.docker.docker_container:
+    name: "{{ item }}"
+    state: started
+    restart: true
+  loop:
+    - "{{ hbase_master_container }}"
+    - "{{ hbase_rs_container }}"
+    - "{{ hbase_rest_container }}"
+  ignore_errors: true

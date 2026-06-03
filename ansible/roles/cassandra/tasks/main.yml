@@ -1,0 +1,72 @@
+---
+# roles/cassandra/tasks/main.yml
+#
+# Despliega un nodo del anillo Cassandra de 3 (uno por VM gcp-a).
+#
+# Red de gestión vs datos:
+#   - listen_address = inventory_hostname (IP interna GCP del nodo):
+#       · node-01 (subred pública):  10.20.1.10 — accesible desde gestión y datos
+#       · node-02 (subred privada):  10.20.2.11 — accesible desde VPC y WireGuard routing
+#       · node-03 (subred privada):  10.20.2.12
+#   - rpc_address = 0.0.0.0 (acepta clientes en todas las interfaces).
+#   - broadcast_rpc_address = inventory_hostname → clientes (Java, Grafana) conectan
+#     a esta IP, que es alcanzable vía WireGuard routing desde gcp-b y nube local.
+#   - Tráfico inter-nodo (7000): VPC de gcp-a (red datos), sin exposición exterior.
+#   - Seeds = primeros 2 nodos del anillo para bootstrap; el nodo seed node-01
+#     está en la subred pública pero es parte del mismo VPC.
+#
+# El contenedor usa el custom entrypoint de docker/cassandra/ que espera a que
+# Cassandra levante y aplica el esquema webhardmon.cql (idempotente).
+
+- name: Crear volumen de datos Cassandra
+  community.docker.docker_volume:
+    name: cassandra-data
+    state: present
+
+- name: Levantar nodo Cassandra
+  community.docker.docker_container:
+    name: cassandra
+    image: "{{ cassandra_image }}"
+    pull: true
+    restart_policy: unless-stopped
+    network_mode: host
+    # Cassandra tarda en inicializarse; el custom entrypoint aplica el CQL
+    # solo cuando el nodo acepta conexiones → timeout generoso.
+    timeout: 300
+    env:
+      CASSANDRA_CLUSTER_NAME:       "{{ cassandra_cluster_name }}"
+      # Seeds: IPs internas de los 2 primeros nodos (red datos gcp-a VPC).
+      CASSANDRA_SEEDS:              "{{ cassandra_seeds }}"
+      # listen_address: IP interna GCP del nodo (red datos).
+      CASSANDRA_LISTEN_ADDRESS:     "{{ cassandra_listen_address }}"
+      CASSANDRA_BROADCAST_ADDRESS:  "{{ cassandra_listen_address }}"
+      # rpc_address: escucha clientes CQL en todas las interfaces.
+      CASSANDRA_RPC_ADDRESS:        "0.0.0.0"
+      CASSANDRA_BROADCAST_RPC_ADDRESS: "{{ cassandra_listen_address }}"
+      CASSANDRA_ENDPOINT_SNITCH:    "SimpleSnitch"
+      # Sharding por vnodes (requisito N2).
+      CASSANDRA_NUM_TOKENS:         "{{ cassandra_num_tokens | string }}"
+      # Heap acotado (el nodo más denso lleva Kafka 2 GB + ZK 512 MB + Java 1.5 GB).
+      MAX_HEAP_SIZE:                "{{ cassandra_max_heap_mb }}M"
+      HEAP_NEWSIZE:                 "{{ cassandra_heap_newsize_mb }}M"
+    volumes:
+      - "cassandra-data:/var/lib/cassandra"
+    state: started
+
+- name: Esperar a que el nodo Cassandra acepte conexiones CQL (puerto 9042)
+  wait_for:
+    host: "127.0.0.1"
+    port: 9042
+    timeout: 180
+
+- name: Verificar estado del nodo (nodetool status)
+  command: docker exec cassandra nodetool status
+  register: nodetool_out
+  changed_when: false
+  retries: 6
+  delay: 10
+  until: "'UN' in nodetool_out.stdout"
+
+- name: Mostrar estado del anillo
+  debug:
+    msg: "{{ nodetool_out.stdout_lines }}"

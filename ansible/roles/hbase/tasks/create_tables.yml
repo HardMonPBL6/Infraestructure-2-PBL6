@@ -1,0 +1,52 @@
+---
+# Crea la tabla webhardmon_hourly (idempotente: comprueba existencia antes).
+# Se ejecuta solo en el nodo Master, después de que el Master esté levantado.
+#
+# Esquema:
+#   Tabla   : webhardmon_hourly
+#   Row key : {licencia}|{ramGb}|{stoGb}|{yyyyMMddHH}
+#             ramGb/stoGb = capacidad de hardware (enteros GB) — separa tiers de
+#             hardware para que cpu/ram% min/max/avg sean comparables.
+#   CF      : m  (metrics)
+#   Columnas: cpu_avg/min/max, ram_avg/min/max, ram_gb,
+#             sto_avg/min/max, sto_gb, bat_avg/min/max,
+#             tmp_avg/min/max, str_avg/min/max, count
+#   Pre-splits: {{ hbase_presplit_regions }} regiones (distribución por primer byte de licencia).
+
+- name: Comprobar si la tabla {{ hbase_table_name }} existe
+  community.docker.docker_container_exec:
+    container: "{{ hbase_master_container }}"
+    command: >
+      hbase shell -n <<'EOF'
+      list_tables
+      EOF
+  register: hbase_tables_list
+  changed_when: false
+  ignore_errors: true
+
+- name: Crear tabla {{ hbase_table_name }} con pre-split de {{ hbase_presplit_regions }} regiones
+  community.docker.docker_container_exec:
+    container: "{{ hbase_master_container }}"
+    command: >
+      hbase shell -n <<'HBASESCRIPT'
+      unless table_exists?('{{ hbase_table_name }}')
+        splits = (1...{{ hbase_presplit_regions }}).map { |i| (i * 256 / {{ hbase_presplit_regions }}).chr }
+        create '{{ hbase_table_name }}',
+          { NAME => '{{ hbase_column_family }}',
+            VERSIONS => 1,
+            TTL => {{ hbase_table_ttl_seconds }},
+            BLOOMFILTER => 'ROW',
+            DATA_BLOCK_ENCODING => 'FAST_DIFF' },
+          { SPLITS => splits }
+        puts "Tabla {{ hbase_table_name }} creada con #{splits.length + 1} regiones"
+      else
+        puts "Tabla {{ hbase_table_name }} ya existe — nada que hacer"
+      end
+      HBASESCRIPT
+  when: hbase_table_name not in (hbase_tables_list.stdout | default(''))
+  register: hbase_create_result
+
+- name: Mostrar resultado de creación de tabla
+  debug:
+    msg: "{{ hbase_create_result.stdout | default('tabla ya existía') }}"
+  when: hbase_create_result is defined and not hbase_create_result.skipped | default(false)
