@@ -22,6 +22,10 @@ bridge_cassandra_keyspace: "webhardmon"
 # Seeds RMI (los nodos del grupo `java`) que el bridge usa como cliente.
 bridge_seeds: "{{ groups['java'] | map('regex_replace', '$', ':1099') | join(' ') }}"
 
+# HDFS (nube local, alcanzable por WireGuard) — camino batch en Parquet.
+# Vacío = HDFS desactivado. NameNode = primer host del grupo [hdfs].
+bridge_hdfs_uri: "hdfs://{{ hostvars[groups['hdfs'][0]].ansible_host }}:9000"
+
 # Mapeo a env/args del contenedor `stressscore-bridge`:
 #   KAFKA_BOOTSTRAP_SERVERS={{ bridge_kafka_bootstrap }}
 #   SCHEMA_REGISTRY_URL={{ bridge_schema_registry_url }}
