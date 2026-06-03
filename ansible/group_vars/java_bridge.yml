@@ -23,8 +23,9 @@ bridge_cassandra_keyspace: "webhardmon"
 bridge_seeds: "{{ groups['java'] | map('regex_replace', '$', ':1099') | join(' ') }}"
 
 # HDFS (nube local, alcanzable por WireGuard) — camino batch en Parquet.
-# Vacío = HDFS desactivado. NameNode = primer host del grupo [hdfs].
-bridge_hdfs_uri: "hdfs://{{ hostvars[groups['hdfs'][0]].ansible_host }}:9000"
+# El clúster HDFS es un proyecto OpenTofu APARTE (HDFS/), no está en este inventario:
+# se apunta directo al NameNode (output `namenode_uri` de su Fase 2). Vacío = desactivado.
+bridge_hdfs_uri: "hdfs://10.10.1.21:9000"
 
 # Mapeo a env/args del contenedor `stressscore-bridge`:
 #   KAFKA_BOOTSTRAP_SERVERS={{ bridge_kafka_bootstrap }}
