@@ -7,12 +7,12 @@ import java.io.DataOutput;
 import java.io.IOException;
 
 /**
- * Transporta las métricas numéricas de una medición individual entre Mapper y Reducer.
+ * Transporta las metricas numericas de una medicion individual entre Mapper y Reducer.
  *
- * Campos que llegan del Parquet (escritos por el bridge Java → HDFS):
- *   uso_procesador, uso_ram, cantidad_ram,
- *   uso_almacenamiento, cantidad_almacenamiento,
- *   bateria, temperatura, stressScore
+ * Campos que llegan del Parquet (escritos por el bridge Java -> HDFS):
+ *   cpu_percent, ram_percent, ram,
+ *   disco_percent, almacenamiento,
+ *   bateria_percent, temperatura, stress_score
  *
  * El timestamp se usa en el Mapper para calcular la ventana horaria del row key;
  * no hace falta transportarlo al Reducer (el row key ya lo codifica).
@@ -66,8 +66,6 @@ public class MetricsWritable implements Writable {
         temperatura = in.readDouble();
         stressScore = in.readDouble();
     }
-
-    // ── getters ──────────────────────────────────────────────────────────────
 
     public double getUsoCpu()                    { return usoCpu; }
     public double getUsoRam()                    { return usoRam; }
