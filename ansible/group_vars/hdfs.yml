@@ -1,0 +1,25 @@
+---
+# group_vars/hdfs.yml — clúster HDFS (capa cold/served del Lambda stack).
+#
+# Se aplica a los 3 hosts del grupo [hdfs]. El rol roles/hdfs ramifica NameNode vs
+# DataNode por pertenencia a [hdfs_namenode] / [hdfs_datanode] (grupos que genera
+# OpenTofu a partir de var.hdfs_nodes). HDFS se despliega como contenedores Docker
+# (imágenes bde2020/hadoop-*), igual que el resto de servicios del repo.
+
+# NameNode fijo en 10.10.1.21:9000 — lo asumen stressscore-bridge (gcp-a), la capa
+# served (hbase) y el job batch (mapreduce). No cambiar sin tocar esos consumidores.
+hdfs_namenode_ip: "10.10.1.21"
+hdfs_rpc_port: 9000
+hdfs_ui_port: 9870
+
+# Solo hay 2 DataNodes -> factor de replicación 2.
+hdfs_replication: 2
+hdfs_blocksize: 134217728 # 128 MiB
+
+# Imágenes bde2020/hadoop. Por defecto se descargan de Docker Hub (los CTs tienen
+# salida a Internet por el gateway de gestión 10.10.1.1). Para servir desde Harbor,
+# pon hdfs_registry_prefix: "10.10.1.50:5000/" y sube/retag las imágenes allí.
+hdfs_registry_prefix: ""
+hdfs_namenode_image: "bde2020/hadoop-namenode"
+hdfs_datanode_image: "bde2020/hadoop-datanode"
+hadoop_version: "2.0.0-hadoop3.2.1-java8"

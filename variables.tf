@@ -44,9 +44,9 @@ variable "proxmox_ssh_private_key" {
 }
 
 variable "proxmox_nodes" {
-  description = "Nodos PVE disponibles. Los componentes del mismo clúster se reparten round-robin (RGI320)."
+  description = "Nodos PVE disponibles. Los CTs genericos se reparten round-robin (RGI320); HDFS se ancla 1-por-nodo (ver var.hdfs_nodes). La plantilla LXC se descarga en TODOS estos nodos."
   type        = list(string)
-  default     = ["pve-local", "pve-local2"]
+  default     = ["pve-local", "pve-local2", "pve-local3"]
 }
 
 variable "proxmox_node_ssh_hosts" {
@@ -105,6 +105,32 @@ variable "local_private_cidr" {
   description = "CIDR de la subred privada local."
   type        = string
   default     = "10.10.3.0/24"
+}
+
+# Supernet que engloba las tres subredes locales (gestion 10.10.1, publica 10.10.2,
+# privada 10.10.3). Es lo que el gateway local anuncia a la malla WireGuard y lo que
+# los gateways GCP enrutan de vuelta, para que HDFS (10.10.1.x) sea alcanzable desde
+# GCP ademas de las subredes de CTs. Tambien amplia el firewall de servicios GCP.
+variable "local_supernet_cidr" {
+  description = "Supernet de la nube local anunciada a la malla (cubre gestion+publica+privada)."
+  type        = string
+  default     = "10.10.0.0/16"
+}
+
+# Red de gestion (10.10.1.0/24, vmbr0). Es la LAN donde viven los CTs de HDFS:
+# el NameNode esta fijado en 10.10.1.21 (lo asume el bridge Java y la capa batch).
+# vmbr0 es el bridge por defecto presente en los tres nodos PVE (a diferencia de
+# vmbr1/vmbr2, que pueden no autoarrancar).
+variable "local_mgmt_bridge" {
+  description = "Bridge de la LAN de gestion (10.10.1.x) donde se crean los CTs de HDFS."
+  type        = string
+  default     = "vmbr0"
+}
+
+variable "local_mgmt_gateway" {
+  description = "Gateway de la LAN de gestion local (salida a Internet para pulls Docker)."
+  type        = string
+  default     = "10.10.1.1"
 }
 
 variable "local_vmid_start" {
@@ -320,19 +346,38 @@ variable "nifi_ingest_port" {
 # -----------------------------------------------------------------------------
 
 variable "topology" {
-  description = "Numero de nodos por componente de la nube LOCAL (Proxmox). Los servicios GCP ya NO se cuentan aqui: se co-localizan en nodos compartidos spot (ver var.gcp_a_nodes / var.gcp_b_nodes)."
+  description = "Numero de CTs genericos round-robin de la nube LOCAL (Proxmox). HDFS NO se cuenta aqui: se ancla 1-por-nodo en la LAN de gestion (ver var.hdfs_nodes). MapReduce tampoco: corre sobre el NameNode HDFS. Los servicios GCP se co-localizan en nodos compartidos spot (ver var.gcp_a_nodes / var.gcp_b_nodes)."
   type = object({
-    nifi      = number
-    hdfs      = number # NameNode + DataNodes contados juntos
-    mapreduce = number
-    harbor    = number
+    nifi   = number
+    harbor = number
   })
   default = {
-    nifi      = 1
-    hdfs      = 3
-    mapreduce = 1
-    harbor    = 1
+    nifi   = 1
+    harbor = 1
   }
+}
+
+# -----------------------------------------------------------------------------
+# HDFS — clúster de 3 nodos sobre la LAN de gestion (10.10.1.x), 1 CT por host PVE
+# -----------------------------------------------------------------------------
+# Cada CT es solo el HOST Docker; HDFS se despliega como contenedores de
+# aplicacion (bde2020/hadoop-*) via Ansible (roles/hdfs). El NameNode esta fijo
+# en 10.10.1.21 (lo asume stressscore-bridge y la capa batch hbase/mapreduce).
+# El NameNode tambien aloja el job MapReduce -> roles ["hdfs","hdfs_namenode","mapreduce"].
+variable "hdfs_nodes" {
+  description = "Nodos del clúster HDFS. kind = namenode|datanode. Uno por host PVE (round-robin manual sobre var.proxmox_nodes)."
+  type = list(object({
+    name         = string
+    kind         = string
+    proxmox_node = string
+    ip           = string
+    vmid         = number
+  }))
+  default = [
+    { name = "hdfs-namenode", kind = "namenode", proxmox_node = "pve-local", ip = "10.10.1.21", vmid = 121 },
+    { name = "hdfs-datanode0", kind = "datanode", proxmox_node = "pve-local2", ip = "10.10.1.22", vmid = 122 },
+    { name = "hdfs-datanode1", kind = "datanode", proxmox_node = "pve-local3", ip = "10.10.1.23", vmid = 123 },
+  ]
 }
 
 # -----------------------------------------------------------------------------

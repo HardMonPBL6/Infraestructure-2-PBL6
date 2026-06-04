@@ -97,7 +97,7 @@ tofu apply   # ~5-8 min; crea VMs, redes, WireGuard, Artifact Registry, inventor
 ```
 
 **Qué crea este `tofu apply`:**
-- **Proxmox**: LXC containers para NiFi, Harbor (el HDFS se despliega aparte, ver 1.4)
+- **Proxmox**: LXC containers (host Docker) para NiFi, Harbor y los 3 nodos HDFS (10.10.1.21/22/23, ver 1.4)
 - **GCP-A**: VPC + subredes pública/privada + Cloud NAT + 3 VMs spot + Artifact Registry
 - **GCP-B**: VPC + subredes pública/privada + Cloud NAT + 3 VMs spot + Artifact Registry
 - **WireGuard**: IPs estáticas reservadas, `wg0.conf` inyectado vía cloud-init en node-01 de cada nube
@@ -111,36 +111,28 @@ tofu output -raw cloudflared_tunnel_token   # → guardar para el despliegue de 
 tofu output container_registries            # → URLs de Artifact Registry por nube
 ```
 
-### 1.4 HDFS — despliegue en dos fases (nube local)
+### 1.4 HDFS — incluido en el `tofu apply` (nube local)
+
+Los 3 nodos HDFS ya **no** son un proyecto aparte: el `tofu apply` de §1.1 crea un CT
+host-Docker por nodo PVE en la LAN de gestión (`var.hdfs_nodes`):
+
+| CT | Nodo PVE | IP | Rol |
+|----|----------|----|-----|
+| `hdfs-namenode`  | pve-local  | 10.10.1.21 | NameNode (+ MapReduce) |
+| `hdfs-datanode0` | pve-local2 | 10.10.1.22 | DataNode |
+| `hdfs-datanode1` | pve-local3 | 10.10.1.23 | DataNode |
+
+El clúster HDFS en sí (contenedores `bde2020/hadoop-*`) lo despliega **Ansible** en la
+fase de servicios, igual que el resto: `ansible-playbook -i ansible/inventory.ini ansible/hdfs.yml`
+(ya incluido en `site.yml`, tras NiFi). Verificación tras ese play:
 
 ```bash
-# FASE 1: crear LXC + instalar Docker
-cd HDFS/
-cp terraform.tfvars.example terraform.tfvars
-# Editar: proxmox_api_url, proxmox_api_token_id/secret, ssh keys, harbor_registry
-
-tofu init
-tofu apply   # crea 3 LXC (10.10.1.21/22/23) e instala Docker en cada uno
-
-# Verificar Docker en los LXC
-ssh root@10.10.1.21 "docker version"
-ssh root@10.10.1.22 "docker version"
-ssh root@10.10.1.23 "docker version"
-
-# FASE 2: desplegar NameNode + 2 DataNodes
-cd mnt/user-data/outputs/webhardmon-hdfs/infra/02-hdfs/
-cp terraform.tfvars.example terraform.tfvars
-# Editar: ssh_private_key_path, harbor_registry
-
-tofu init
-tofu apply   # despliega contenedores HDFS dentro de los LXC
-
-# Verificar clúster HDFS (debe mostrar 2 DataNodes en estado Live)
-ssh root@10.10.1.21 \
+# Debe mostrar 2 DataNodes en estado Live (ubuntu@2222 tras security.yml)
+ssh -p 2222 ubuntu@10.10.1.21 \
   "docker exec webhardmon-hdfs-namenode hdfs dfsadmin -report"
 
-# Crear directorio de telemetría
-ssh root@10.10.1.21 \
+# Crear directorio de telemetría para el camino cold (Parquet del Java bridge)
+ssh -p 2222 ubuntu@10.10.1.21 \
   "docker exec webhardmon-hdfs-namenode hdfs dfs -mkdir -p /data/telemetry"
 
 # UI del NameNode: http://10.10.1.21:9870

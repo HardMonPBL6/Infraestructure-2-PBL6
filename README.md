@@ -16,25 +16,59 @@ Conexión entre nubes: **malla WireGuard**, un gateway por nube. SSH administrat
 
 | Gateway | IP VPN WireGuard | IP interna GCP | IP externa |
 |---|---|---|---|
-| Gestión (portátil) | `10.0.0.1` | — | dinámica / DDNS |
-| Gateway local | `10.0.0.10` | — | configurada a mano |
+| Gestión (portátil) | `10.0.0.1` | — | mismo host Windows (Ansible corre en su WSL) |
+| Gateway local | `10.0.0.10` | — | el host Windows — `scripts/setup-local-gateway.ps1` |
 | GCP-A node-01 | `10.0.0.20` | `10.20.1.10` | estática (`google_compute_address`) |
 | GCP-B node-01 | `10.0.0.30` | `10.30.1.10` | estática (`google_compute_address`) |
 
 **Patrón asimétrico — un gateway por nube:**
 - **GCP-A / GCP-B**: solo el `node-01` público de cada nube ejecuta WireGuard (gateway). Los nodos privados (`node-02`/`03`) **no** levantan WireGuard — reciben un servicio systemd one-shot que añade rutas estáticas hacia las otras nubes a través de su gateway. Ansible los alcanza por su IP interna GCP (`10.20.2.11`, etc.) enrutada por el gateway.
-- **local**: los CTs tampoco ejecutan WireGuard. El gateway local (`10.0.0.10`, gestionado a mano fuera de OpenTofu) anuncia las subredes `10.10.2.0/24` y `10.10.3.0/24` a la malla, así que los CTs son alcanzables por su IP LAN sin instalar nada dentro.
+- **local**: los CTs tampoco ejecutan WireGuard. El **gateway local es el propio host Windows** (`10.0.0.10`) que aloja las VMs de Proxmox y enruta la LAN `10.10.x`; marca **saliente** a los dos gateways GCP y anuncia la supernet local (`var.local_supernet_cidr` = `10.10.0.0/16`, que cubre HDFS `10.10.1.x` además de las subredes de CTs) a la malla. La malla es **plana enrutada (sin NAT)**, así que el firewall GCP `allow_wg_vpn` confía en las subredes locales/inter-nube (`local.wg_service_source_ranges`).
 
-Las **IPs externas estáticas** de los gateways GCP se reservan con `google_compute_address` para que las configs de peers WireGuard sobrevivan a la recreación de las VMs spot. Tras `tofu apply`, ejecuta `tofu output wireguard_gateway_ips` para obtener las IPs que necesitas al configurar a mano el gateway local y el nodo de gestión.
+Las **IPs externas estáticas** de los gateways GCP se reservan con `google_compute_address` para que las configs de peers WireGuard sobrevivan a la recreación de las VMs spot.
 
-**Claves WireGuard** — se generan a mano y se guardan en `terraform.tfvars` (gitignored). Las privadas de los gateways GCP se inyectan en `wg0.conf` vía `cloud-init/wireguard.yaml.tftpl` en la creación de la VM; el nodo de gestión y el gateway local se configuran a mano con sus propias privadas + las IPs estáticas del output.
+**Claves WireGuard** — las de los gateways GCP se generan a mano y se guardan en `terraform.tfvars` (gitignored), e inyectadas en `wg0.conf` vía `cloud-init/wireguard.yaml.tftpl`. La clave del **gateway local** la genera `scripts/setup-local-gateway.ps1`, que además escribe la `wg_local_gw_public_key` en `terraform.tfvars` y lee los endpoints GCP de `tofu output wireguard_gateway_ips`.
 
 ```bash
 wg genkey | tee gcp-a-private.key | wg pubkey > gcp-a-public.key
 wg genkey | tee gcp-b-private.key | wg pubkey > gcp-b-public.key
-wg genkey | tee mgmt-private.key  | wg pubkey > mgmt-public.key
-wg genkey | tee local-gw-private.key | wg pubkey > local-gw-public.key
+# El gateway local (Windows) lo configura: scripts/setup-local-gateway.ps1 (admin)
 ```
+
+## Puesta en marcha
+
+### Paso 0 — Gateway local (una vez, en este Windows)
+
+Convierte el host Windows en el gateway WireGuard de la nube local (`10.0.0.10`).
+**Requiere PowerShell como Administrador.** Es idempotente: genera el par de claves,
+escribe el túnel con los dos gateways GCP como peers, activa el reenvío IP + firewall,
+instala el servicio del túnel y escribe la nueva `wg_local_gw_public_key` en `terraform.tfvars`.
+
+```powershell
+cd C:\Users\sebastian\Claude\infra
+powershell -ExecutionPolicy Bypass -File scripts\setup-local-gateway.ps1
+```
+
+> Tras cambiar la clave, el siguiente `tofu apply` recrea las 2 VMs gateway de GCP para
+> que confíen en ella (sus IPs externas reservadas se conservan, así que los endpoints
+> del túnel no cambian). Solo hace falta repetir el Paso 0 si pierdes la clave o reinstalas.
+
+### Despliegue (3 pasos)
+
+```powershell
+# 1) Infraestructura: provisiona/actualiza las 3 nubes y genera ansible/inventory.ini
+tofu apply
+
+# 2) Imágenes de servicio → registro de cada nube (Docker vía WSL o Docker Desktop)
+docker\build-and-push.ps1            # o: wsl -e bash -lc "cd docker && ./build-and-push.sh"
+
+# 3) Despliegue Ansible: seguridad (SSH 22→2222) → servicios base → HDFS → grafana/matomo → apps
+wsl -e bash -lc "ansible-playbook -i ansible/inventory.ini ansible/site.yml"
+```
+
+Verificación rápida: `wg show` (handshake con ambos gateways GCP) y
+`wsl -e bash -lc "ansible all -i ansible/inventory.ini -m ping"` (alcanza todos los hosts).
+HBase y MapReduce (capa served/batch) se lanzan aparte: `ansible-playbook ... hbase.yml` / `mapreduce.yml`.
 
 **Ingesta externa — Cloudflare Tunnel:** el *collector* corre en **PCs de usuario fuera de las tres nubes**, así que no llega por WireGuard (no es peer) ni por la LAN (detrás de NAT doméstico). `cloudflared` corre en el CT de NiFi y marca **saliente** al edge de Cloudflare, publicando `ingest.<zona>` sin abrir puertos ni NAT; **Cloudflare Access** (service token) autentica a los collectors. WireGuard solo lleva la malla inter-nube + SSH admin; Cloudflare Tunnel solo lleva externo→ingesta. Se desactiva con `cloudflare_enabled = false`.
 

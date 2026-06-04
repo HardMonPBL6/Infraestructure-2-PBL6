@@ -1,0 +1,37 @@
+---
+# ============================================================================
+# Despliega el clúster HDFS (3 nodos) en la nube local como contenedores Docker.
+#
+# Topología (1 CT por host PVE, LAN de gestión 10.10.1.x — la crea OpenTofu):
+#   hdfs-namenode  10.10.1.21  (pve-local)   → NameNode  (+ host del job MapReduce)
+#   hdfs-datanode0 10.10.1.22  (pve-local2)  → DataNode
+#   hdfs-datanode1 10.10.1.23  (pve-local3)  → DataNode
+#
+# El NameNode queda en 10.10.1.21:9000 — lo consumen stressscore-bridge (gcp-a),
+# la capa served (hbase.yml) y el job batch (mapreduce.yml).
+#
+#   ansible-playbook -i ansible/inventory.ini ansible/hdfs.yml
+#
+# Orden garantizado por plays separados: Docker en los 3 → NameNode → DataNodes
+# (los DataNodes se registran contra un NameNode ya arrancado).
+# ============================================================================
+
+- name: Instalar Docker en los nodos HDFS
+  hosts: hdfs
+  become: true
+  roles:
+    - docker
+
+- name: Desplegar el NameNode HDFS
+  hosts: hdfs_namenode
+  become: true
+  gather_facts: false
+  roles:
+    - hdfs
+
+- name: Desplegar los DataNodes HDFS
+  hosts: hdfs_datanode
+  become: true
+  gather_facts: false
+  roles:
+    - hdfs

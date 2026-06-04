@@ -111,12 +111,18 @@ variable "wg_vpn_cidr" {
   default     = "10.0.0.0/24"
 }
 
+variable "wg_service_source_ranges" {
+  description = "Origenes permitidos para trafico de servicio entrante via la malla. Por defecto solo la VPN; el repo raiz lo amplia con las subredes locales/inter-nube (malla enrutada sin NAT)."
+  type        = list(string)
+  default     = null
+}
+
 resource "google_compute_firewall" "allow_wg_vpn" {
   name          = "${var.name_prefix}-allow-wg-vpn"
   network       = google_compute_network.vpc.id
-  description   = "Trafico de servicios desde la VPN WireGuard (10.0.0.0/24 por defecto)."
+  description   = "Trafico de servicios desde la malla WireGuard (VPN + subredes locales/inter-nube enrutadas)."
   direction     = "INGRESS"
-  source_ranges = [var.wg_vpn_cidr]
+  source_ranges = coalesce(var.wg_service_source_ranges, [var.wg_vpn_cidr])
 
   allow { protocol = "tcp" }
   allow { protocol = "udp" }

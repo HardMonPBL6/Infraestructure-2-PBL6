@@ -1,0 +1,83 @@
+---
+# roles/hdfs/tasks/main.yml
+#
+# Despliega un nodo del clúster HDFS como contenedor Docker (bde2020/hadoop-*).
+# El rol ramifica por pertenencia a grupo:
+#   - [hdfs_namenode] -> contenedor NameNode (+ es también el host del job MapReduce)
+#   - [hdfs_datanode] -> contenedor DataNode
+# Ambos en red host (puertos HDFS expuestos en la IP del CT) y con volumen Docker
+# persistente. Las variables (IP/puertos/replicación/imágenes) van en group_vars/hdfs.yml.
+#
+# Prerequisito: roles/docker (lo encadena ansible/hdfs.yml antes de este rol).
+
+# ── NameNode ────────────────────────────────────────────────────────────────
+- name: Volumen persistente del NameNode
+  community.docker.docker_volume:
+    name: "{{ project_name }}-hdfs-namenode"
+    state: present
+  when: inventory_hostname in groups['hdfs_namenode']
+
+- name: Levantar contenedor NameNode
+  community.docker.docker_container:
+    name: "{{ project_name }}-hdfs-namenode"
+    image: "{{ hdfs_registry_prefix }}{{ hdfs_namenode_image }}:{{ hadoop_version }}"
+    pull: true
+    restart_policy: unless-stopped
+    network_mode: host
+    volumes:
+      - "{{ project_name }}-hdfs-namenode:/hadoop/dfs/name"
+    env:
+      CLUSTER_NAME: "{{ project_name }}"
+      CORE_CONF_fs_defaultFS: "hdfs://{{ hdfs_namenode_ip }}:{{ hdfs_rpc_port }}"
+      HDFS_CONF_dfs_namenode_name_dir: "file:///hadoop/dfs/name"
+      HDFS_CONF_dfs_namenode_rpc___bind___host: "0.0.0.0"
+      HDFS_CONF_dfs_namenode_http___bind___host: "0.0.0.0"
+      HDFS_CONF_dfs_namenode_servicerpc___bind___host: "0.0.0.0"
+      HDFS_CONF_dfs_replication: "{{ hdfs_replication | string }}"
+      HDFS_CONF_dfs_blocksize: "{{ hdfs_blocksize | string }}"
+      HDFS_CONF_dfs_namenode_datanode_registration_ip___hostname___check: "false"
+      HDFS_CONF_dfs_client_use_datanode_hostname: "true"
+      HDFS_CONF_dfs_permissions_enabled: "false"
+    state: started
+  when: inventory_hostname in groups['hdfs_namenode']
+
+- name: Esperar a que el NameNode escuche RPC ({{ hdfs_rpc_port }})
+  ansible.builtin.wait_for:
+    host: "127.0.0.1"
+    port: "{{ hdfs_rpc_port }}"
+    timeout: 180
+  when: inventory_hostname in groups['hdfs_namenode']
+
+# ── DataNode ────────────────────────────────────────────────────────────────
+# dfs_datanode_hostname = IP del propio CT (ansible_host) para que el NameNode
+# anuncie a los clientes una IP enrutable por la malla en vez del hostname del CT.
+- name: Volumen persistente del DataNode
+  community.docker.docker_volume:
+    name: "{{ project_name }}-hdfs-datanode"
+    state: present
+  when: inventory_hostname in groups['hdfs_datanode']
+
+- name: Levantar contenedor DataNode
+  community.docker.docker_container:
+    name: "{{ project_name }}-hdfs-datanode"
+    image: "{{ hdfs_registry_prefix }}{{ hdfs_datanode_image }}:{{ hadoop_version }}"
+    pull: true
+    restart_policy: unless-stopped
+    network_mode: host
+    volumes:
+      - "{{ project_name }}-hdfs-datanode:/hadoop/dfs/data"
+    env:
+      CORE_CONF_fs_defaultFS: "hdfs://{{ hdfs_namenode_ip }}:{{ hdfs_rpc_port }}"
+      HDFS_CONF_dfs_datanode_data_dir: "file:///hadoop/dfs/data"
+      HDFS_CONF_dfs_replication: "{{ hdfs_replication | string }}"
+      HDFS_CONF_dfs_datanode_hostname: "{{ ansible_host }}"
+      HDFS_CONF_dfs_client_use_datanode_hostname: "true"
+      HDFS_CONF_dfs_datanode_use_datanode_hostname: "true"
+    state: started
+  when: inventory_hostname in groups['hdfs_datanode']
+
+- name: Resumen del nodo HDFS desplegado
+  ansible.builtin.debug:
+    msg: >-
+      {{ 'NameNode' if inventory_hostname in groups['hdfs_namenode'] else 'DataNode' }}
+      en {{ ansible_host }} — UI NameNode: http://{{ hdfs_namenode_ip }}:{{ hdfs_ui_port }}

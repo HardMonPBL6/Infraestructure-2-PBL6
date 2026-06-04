@@ -16,6 +16,14 @@ locals {
       roles        = [v.role]
       cloud        = "local"
     }],
+    # HDFS: 1 CT por nodo PVE en la LAN de gestion. Cada host lleva varios grupos
+    # ([hdfs] + [hdfs_namenode|hdfs_datanode], y el NameNode tambien [mapreduce]).
+    [for k, v in local.hdfs_cts : {
+      name         = v.hostname
+      ansible_host = v.ip
+      roles        = v.roles
+      cloud        = "local"
+    }],
     [for k, v in local.gcp_a_vms : {
       name         = v.hostname
       ansible_host = v.is_gateway ? local.wg_gcp_a_gw_ip : v.network_ip

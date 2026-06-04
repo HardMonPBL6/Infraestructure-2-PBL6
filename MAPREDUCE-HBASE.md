@@ -420,7 +420,7 @@ EOF
    docker exec hbase-master hdfs dfs -ls hdfs://10.10.1.21:9000/
    ```
 2. Si falla: verificar ruta IP en los nodos gcp-b (`ip route show 10.10.0.0/16`).
-3. Verificar que el NameNode escucha en `0.0.0.0` (env var `dfs_namenode_rpc___bind___host=0.0.0.0` ya configurada en HDFS/infra/02-hdfs/main.tf ✓).
+3. Verificar que el NameNode escucha en `0.0.0.0` (env var `HDFS_CONF_dfs_namenode_rpc___bind___host=0.0.0.0` ya configurada en `ansible/roles/hdfs/tasks/main.yml` ✓).
 
 ### Job MR termina con error de conexión HBase
 

@@ -19,6 +19,7 @@
 #    cassandra  (independiente de ZK/Kafka)
 #    mysql      (independiente)
 #    nifi       (requiere kafka + schema_registry + mysql)
+#    hdfs       (capa cold local; la usan stressscore-bridge, hbase y mapreduce)
 #    hbase      (requiere HDFS en nube local)
 #    grafana    (requiere cassandra + mysql + hbase)
 #    matomo     (independiente)
@@ -31,6 +32,7 @@
 - import_playbook: cassandra.yml
 - import_playbook: mysql.yml
 - import_playbook: nifi.yml
+- import_playbook: hdfs.yml            # capa COLD: clúster HDFS local (3 nodos Docker)
 # - import_playbook: hbase.yml          # capa SERVED: requiere HDFS local activo
 # - import_playbook: elasticsearch.yml  # pendiente de rol
 - import_playbook: grafana.yml

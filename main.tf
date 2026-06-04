@@ -57,19 +57,22 @@ locals {
   gcp_a_gateway_internal_ip = cidrhost(var.gcp_a_public_cidr, 10)
   gcp_b_gateway_internal_ip = cidrhost(var.gcp_b_public_cidr, 10)
 
+  # Origenes permitidos en el firewall de servicios GCP (allow_wg_vpn): la malla
+  # WireGuard mas las IPs reales de la nube local y de la otra nube GCP, ya que el
+  # trafico inter-nube cruza el tunel SIN NAT (malla enrutada plana).
+  wg_service_source_ranges = [
+    var.wg_vpn_cidr,
+    var.local_supernet_cidr,
+    var.gcp_a_public_cidr, var.gcp_a_private_cidr,
+    var.gcp_b_public_cidr, var.gcp_b_private_cidr,
+  ]
+
+  # CTs genericos round-robin (HDFS y MapReduce se gestionan aparte, ver mas abajo).
   # Cada entrada: { role, idx, public, cores?, memory?, disk_gb? }
   local_ct_specs = concat(
     [for i in range(var.topology.nifi) : {
       role  = "nifi", idx = i + 1, public = true,
       cores = null, memory = null, disk_gb = null
-    }],
-    [for i in range(var.topology.hdfs) : {
-      role  = "hdfs", idx = i + 1, public = false,
-      cores = 2, memory = 4096, disk_gb = 32
-    }],
-    [for i in range(var.topology.mapreduce) : {
-      role  = "mapreduce", idx = i + 1, public = false,
-      cores = 2, memory = 4096, disk_gb = 24
     }],
     [for i in range(var.topology.harbor) : {
       role  = "harbor", idx = i + 1, public = true,
@@ -92,6 +95,20 @@ locals {
       memory   = coalesce(s.memory, var.lxc_default_resources.memory)
       disk_gb  = coalesce(s.disk_gb, var.lxc_default_resources.disk_gb)
       ip       = s.public ? format("%s.%d", local.local_public_prefix, var.local_vmid_start + i) : format("%s.%d", local.local_private_prefix, var.local_vmid_start + i)
+    })
+  }
+
+  # HDFS: 1 CT por host PVE en la LAN de gestion (IP/nodo fijos, ver var.hdfs_nodes).
+  # El NameNode lleva tambien los roles hdfs_namenode + mapreduce; los DataNodes,
+  # hdfs_datanode. Estos grupos los consume Ansible (roles/hdfs ramifica por grupo).
+  hdfs_cts = {
+    for n in var.hdfs_nodes :
+    n.name => merge(n, {
+      hostname = "${var.project_name}-${n.name}"
+      roles    = n.kind == "namenode" ? ["hdfs", "hdfs_namenode", "mapreduce"] : ["hdfs", "hdfs_datanode"]
+      cores    = 2
+      memory   = 4096
+      disk_gb  = 32
     })
   }
 }
@@ -160,6 +177,70 @@ resource "null_resource" "lxc_bootstrap" {
   }
 }
 
+# ---- HDFS: 3 CTs (host Docker) en la LAN de gestion, 1 por nodo PVE ---------
+# Reutiliza el mismo modulo proxmox-lxc en su modo "publico" (1 NIC + gateway),
+# pero apuntando al bridge de gestion (vmbr0 / 10.10.1.1). HDFS en si lo despliega
+# Ansible como contenedores Docker (roles/hdfs). El NameNode queda en 10.10.1.21.
+module "hdfs_ct" {
+  source   = "./modules/proxmox-lxc"
+  for_each = local.hdfs_cts
+
+  vmid             = each.value.vmid
+  hostname         = each.value.hostname
+  node_name        = each.value.proxmox_node
+  template_file_id = proxmox_download_file.ubuntu_lxc[each.value.proxmox_node].id
+  datastore_disk   = var.proxmox_datastore_disk
+  cores            = each.value.cores
+  memory           = each.value.memory
+  swap             = var.lxc_default_resources.swap
+  disk_gb          = each.value.disk_gb
+
+  public_bridge     = var.local_mgmt_bridge
+  private_bridge    = var.local_private_bridge
+  public_gateway    = var.local_mgmt_gateway
+  in_private_subnet = false
+  primary_ip_cidr   = "${each.value.ip}/24"
+
+  tags = [var.project_name, local.local_cloud_tag, "hdfs"]
+}
+
+# Mismo bootstrap por SSH+pct que los CTs genericos (crea ubuntu, instala python3
+# para Ansible, endurece SSH). Docker lo instala despues Ansible (roles/docker).
+resource "null_resource" "hdfs_bootstrap" {
+  for_each = local.hdfs_cts
+
+  triggers = {
+    container = module.hdfs_ct[each.key].id
+    script = sha1(templatefile("${path.module}/cloud-init/lxc-bootstrap.sh.tftpl", {
+      ssh_pubkey = var.local_ct_ssh_pubkey
+    }))
+  }
+
+  connection {
+    type        = "ssh"
+    host        = var.proxmox_node_ssh_hosts[each.value.proxmox_node]
+    user        = var.proxmox_ssh_user
+    private_key = var.proxmox_ssh_private_key
+  }
+
+  provisioner "file" {
+    content = templatefile("${path.module}/cloud-init/lxc-bootstrap.sh.tftpl", {
+      ssh_pubkey = var.local_ct_ssh_pubkey
+    })
+    destination = "/tmp/wh-bootstrap-${each.value.vmid}.sh"
+  }
+
+  provisioner "remote-exec" {
+    inline = [
+      "set -e",
+      "pct start ${each.value.vmid} >/dev/null 2>&1 || true",
+      "for i in $(seq 1 60); do pct status ${each.value.vmid} | grep -q running && break; sleep 1; done",
+      "pct exec ${each.value.vmid} -- bash -se < /tmp/wh-bootstrap-${each.value.vmid}.sh",
+      "rm -f /tmp/wh-bootstrap-${each.value.vmid}.sh",
+    ]
+  }
+}
+
 # ---- Cloudflare Tunnel: ingesta externa hacia NiFi --------------------------
 # El collector (en PCs de usuario, fuera de la malla WireGuard y detras de NAT) entra por
 # aqui. cloudflared corre en el CT de NiFi con el token que exporta el modulo.
@@ -181,12 +262,13 @@ module "cloudflare_tunnel" {
 # =============================================================================
 
 module "gcp_a_network" {
-  source       = "./modules/gcp-network"
-  providers    = { google = google.gcp_a }
-  name_prefix  = "${var.project_name}-a"
-  region       = var.gcp_a_region
-  public_cidr  = var.gcp_a_public_cidr
-  private_cidr = var.gcp_a_private_cidr
+  source                   = "./modules/gcp-network"
+  providers                = { google = google.gcp_a }
+  name_prefix              = "${var.project_name}-a"
+  region                   = var.gcp_a_region
+  public_cidr              = var.gcp_a_public_cidr
+  private_cidr             = var.gcp_a_private_cidr
+  wg_service_source_ranges = local.wg_service_source_ranges
 }
 
 resource "google_service_account" "gcp_a" {
@@ -255,7 +337,7 @@ module "gcp_a_vm" {
     wg_gateway_ip  = local.gcp_a_gateway_internal_ip
     remote_cidrs = each.value.is_gateway ? [] : [
       var.wg_vpn_cidr,
-      var.local_public_cidr, var.local_private_cidr,
+      var.local_supernet_cidr,
       var.gcp_b_public_cidr, var.gcp_b_private_cidr,
     ]
     wg_peers = each.value.is_gateway ? [
@@ -269,7 +351,7 @@ module "gcp_a_vm" {
         name        = "local-gateway"
         public_key  = var.wg_local_gw_public_key
         endpoint    = var.wg_local_gw_endpoint
-        allowed_ips = ["${local.wg_local_gw_ip}/32", var.local_public_cidr, var.local_private_cidr]
+        allowed_ips = ["${local.wg_local_gw_ip}/32", var.local_supernet_cidr]
       },
       {
         name        = "gcp-b-gateway"
@@ -286,12 +368,13 @@ module "gcp_a_vm" {
 # =============================================================================
 
 module "gcp_b_network" {
-  source       = "./modules/gcp-network"
-  providers    = { google = google.gcp_b }
-  name_prefix  = "${var.project_name}-b"
-  region       = var.gcp_b_region
-  public_cidr  = var.gcp_b_public_cidr
-  private_cidr = var.gcp_b_private_cidr
+  source                   = "./modules/gcp-network"
+  providers                = { google = google.gcp_b }
+  name_prefix              = "${var.project_name}-b"
+  region                   = var.gcp_b_region
+  public_cidr              = var.gcp_b_public_cidr
+  private_cidr             = var.gcp_b_private_cidr
+  wg_service_source_ranges = local.wg_service_source_ranges
 }
 
 resource "google_service_account" "gcp_b" {
@@ -355,7 +438,7 @@ module "gcp_b_vm" {
     wg_gateway_ip  = local.gcp_b_gateway_internal_ip
     remote_cidrs = each.value.is_gateway ? [] : [
       var.wg_vpn_cidr,
-      var.local_public_cidr, var.local_private_cidr,
+      var.local_supernet_cidr,
       var.gcp_a_public_cidr, var.gcp_a_private_cidr,
     ]
     wg_peers = each.value.is_gateway ? [
@@ -369,7 +452,7 @@ module "gcp_b_vm" {
         name        = "local-gateway"
         public_key  = var.wg_local_gw_public_key
         endpoint    = var.wg_local_gw_endpoint
-        allowed_ips = ["${local.wg_local_gw_ip}/32", var.local_public_cidr, var.local_private_cidr]
+        allowed_ips = ["${local.wg_local_gw_ip}/32", var.local_supernet_cidr]
       },
       {
         name        = "gcp-a-gateway"

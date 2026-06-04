@@ -20,6 +20,8 @@ override.tf.json
 *.key
 *-credentials.json
 gcp-*.json
+# Config del tunel WireGuard del gateway local (contiene clave privada)
+wg-*.conf
 
 # Inventario generado
 ansible/inventory.ini
