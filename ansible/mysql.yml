@@ -23,6 +23,7 @@
 - name: Desplegar MySQL en gcp-b node-02
   hosts: mysql
   gather_facts: false
+  become: true
   roles:
     - docker
     - mysql

@@ -34,7 +34,6 @@
     image: "{{ mysql_image }}"
     pull: true
     restart_policy: unless-stopped
-    network_mode: host
     ports:
       - "{{ mysql_port }}:3306"
     env:

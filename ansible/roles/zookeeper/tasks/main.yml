@@ -40,14 +40,15 @@
       ZOOKEEPER_SYNC_LIMIT: "2"
       ZOOKEEPER_MAX_CLIENT_CNXNS: "60"
       # server.N=ip:peerPort:leaderPort para cada nodo del ensemble.
-      # Usa IPs internas GCP (inventory_hostname de cada miembro del grupo).
-      # Red datos: tráfico 2888/3888 entre nodos de la misma VPC GCP-A.
+      # Usa zookeeper_ensemble (IPs ansible_host) definido en group_vars/all.yml para
+      # que los peers se comuniquen por IP y no por hostname de inventario.
+      # Formato Confluent CP: host:2888:3888 separado por punto y coma.
       ZOOKEEPER_SERVERS: >-
-        {{ groups['zookeeper']
+        {{ zookeeper_ensemble
            | map('regex_replace', '$', ':2888:3888')
            | join(';') }}
       # Heap acotado al presupuesto del nodo (gcp-a node-02/03 lleva Kafka+Cassandra+Java).
-      KAFKA_HEAP_OPTS: "-Xms{{ zookeeper_heap_mb }}m -Xmx{{ zookeeper_heap_mb }}m"
+      ZOOKEEPER_HEAP_OPTS: "-Xms{{ zookeeper_heap_mb }}m -Xmx{{ zookeeper_heap_mb }}m"
     volumes:
       - "zookeeper-data:/var/lib/zookeeper/data"
       - "zookeeper-logs:/var/lib/zookeeper/log"

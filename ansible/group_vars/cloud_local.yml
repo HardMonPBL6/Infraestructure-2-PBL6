@@ -6,7 +6,7 @@
 # Los LXC hacen docker pull/push contra esta dirección.
 # Para que funcione docker pull, el LXC debe tener harbor en insecure-registries
 # (HTTP sin TLS) o Harbor configurado con TLS. Ver HDFS/README.md.
-container_registry_local: "10.10.1.50:5000"
+container_registry_local: "10.10.1.50:5000/webhardmon"
 
 # Para el rol docker: autentica contra Harbor con usuario/contraseña.
 # docker_registry_host vacío = el rol omite gcloud auth (no GCP).

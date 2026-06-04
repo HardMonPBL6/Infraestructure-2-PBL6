@@ -16,5 +16,8 @@ kafka_default_partitions: 3
 kafka_default_replication_factor: 3
 kafka_min_insync_replicas: 2
 
-# Listener anunciado = IP interna GCP del nodo (accesible via WireGuard entre nubes).
-kafka_advertised_listener: "PLAINTEXT://{{ inventory_hostname }}:{{ kafka_port }}"
+# Listener anunciado = ansible_host del nodo (WireGuard IP para node-01, IP interna
+# GCP para node-02/03). Es la dirección que los clientes (NiFi, bridge) usan para
+# conectar directamente al broker tras resolver los metadatos. inventory_hostname sería
+# un hostname que no resuelve fuera de la VPC de gcp-a.
+kafka_advertised_listener: "PLAINTEXT://{{ ansible_host }}:{{ kafka_port }}"

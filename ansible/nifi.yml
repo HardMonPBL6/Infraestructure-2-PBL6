@@ -27,6 +27,7 @@
 - name: Desplegar NiFi + cloudflared en la nube local
   hosts: nifi
   gather_facts: false
+  become: true
   roles:
     - docker
     - nifi

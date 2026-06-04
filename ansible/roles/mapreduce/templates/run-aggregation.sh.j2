@@ -20,6 +20,7 @@ echo "[$(date -u +%FT%TZ)] Iniciando job MapReduce WebHardMon" | tee "${LOGFILE}
 
 docker exec "${CONTAINER}" \
   hadoop jar "${JAR}" "${MAIN}" \
+    -Dmapreduce.framework.name=local \
     "${INPUT_PATH}" \
     "${HBASE_TABLE}" \
     "${ZK_QUORUM}" \

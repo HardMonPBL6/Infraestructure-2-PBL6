@@ -27,7 +27,7 @@ node_mem_reserved_os_mb: 1536   # SO + dockerd + wg-quick
 # La URL real por nube la fija OpenTofu (output container_registries). Se
 # sobreescribe en group_vars/cloud_gcp_a.yml y cloud_gcp_b.yml. Local usa Harbor.
 container_registry: "localhost"          # placeholder; override por nube
-image_tag: "latest"
+image_tag: "1.0"                         # pinear siempre: Spot+DELETE reconstruye VMs; "latest" puede tirar de imagen diferente
 
 # --- Endurecimiento de seguridad (rol security, playbook security.yml) ------
 # El rol trae defaults seguros; aquí van los específicos del despliegue.
@@ -47,10 +47,12 @@ security_fail2ban_ignoreip:
   - 10.30.0.0/16   # gcp-b
 
 # --- Helpers de descubrimiento de cluster -----------------------------------
-# IPs WireGuard (gateways) o IPs internas GCP (nodos privados) = ansible_host en el inventario.
-# Estas listas las consumen las plantillas de cada servicio.
-zookeeper_ensemble: "{{ groups['zookeeper'] | default([]) }}"
-kafka_brokers: "{{ groups['kafka'] | default([]) }}"
-cassandra_nodes: "{{ groups['cassandra'] | default([]) }}"
-hbase_regionservers: "{{ groups['hbase'] | default([]) }}"
-schema_registry_node: "{{ groups['schema_registry'][0] | default('') }}"
+# Resuelven a ansible_host (WireGuard IP para gateways, IP interna GCP para
+# nodos privados). Usar SIEMPRE estas listas en lugar de groups['svc'] directamente
+# para evitar que los hostnames de inventario se cuelen en configs cross-cloud donde
+# no hay DNS que los resuelva (Kafka advertised listeners, ZK quorum, etc.).
+zookeeper_ensemble: "{{ groups['zookeeper'] | default([]) | map('extract', hostvars, 'ansible_host') | list }}"
+kafka_brokers:       "{{ groups['kafka']     | default([]) | map('extract', hostvars, 'ansible_host') | list }}"
+cassandra_nodes:     "{{ groups['cassandra'] | default([]) | map('extract', hostvars, 'ansible_host') | list }}"
+hbase_regionservers: "{{ groups['hbase']     | default([]) | map('extract', hostvars, 'ansible_host') | list }}"
+schema_registry_node: "{{ (groups['schema_registry'] | default([]) | map('extract', hostvars, 'ansible_host') | list)[0] | default('') }}"

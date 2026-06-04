@@ -160,6 +160,7 @@ module "gcp_a_network" {
   region       = var.gcp_a_region
   public_cidr  = var.gcp_a_public_cidr
   private_cidr = var.gcp_a_private_cidr
+  wg_vpn_cidr  = var.wg_vpn_cidr
 }
 
 resource "google_service_account" "gcp_a" {
@@ -265,6 +266,7 @@ module "gcp_b_network" {
   region       = var.gcp_b_region
   public_cidr  = var.gcp_b_public_cidr
   private_cidr = var.gcp_b_private_cidr
+  wg_vpn_cidr  = var.wg_vpn_cidr
 }
 
 resource "google_service_account" "gcp_b" {
