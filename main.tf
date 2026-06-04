@@ -28,11 +28,15 @@ resource "google_compute_address" "gcp_b_gateway" {
 # 2. NUBE LOCAL (Proxmox LXC)
 # =============================================================================
 
-# Plantilla Ubuntu 24.04 — descarga si no existe.
+# Plantilla Ubuntu 24.04 — descarga si no existe. El storage `local` es por-nodo,
+# y los CTs se reparten round-robin entre var.proxmox_nodes, así que la plantilla
+# debe existir en CADA nodo, no solo en el primero.
 resource "proxmox_download_file" "ubuntu_lxc" {
+  for_each = toset(var.proxmox_nodes)
+
   content_type = "vztmpl"
   datastore_id = var.proxmox_datastore_template
-  node_name    = var.proxmox_nodes[0]
+  node_name    = each.value
   url          = "http://download.proxmox.com/images/system/${var.proxmox_ct_template}"
   file_name    = var.proxmox_ct_template
   overwrite    = false
@@ -92,22 +96,6 @@ locals {
   }
 }
 
-# Hookscript snippet por CT (embebe hostname + tags + auth key).
-resource "proxmox_virtual_environment_file" "lxc_hook" {
-  for_each = local.local_cts
-
-  content_type = "snippets"
-  datastore_id = var.proxmox_datastore_template
-  node_name    = var.proxmox_nodes[0]
-
-  source_raw {
-    file_name = "wh-${each.value.vmid}.sh"
-    data = templatefile("${path.module}/cloud-init/lxc-bootstrap.sh.tftpl", {
-      ssh_pubkey = var.local_ct_ssh_pubkey
-    })
-  }
-}
-
 module "local_ct" {
   source   = "./modules/proxmox-lxc"
   for_each = local.local_cts
@@ -115,7 +103,7 @@ module "local_ct" {
   vmid             = each.value.vmid
   hostname         = each.value.hostname
   node_name        = each.value.node
-  template_file_id = proxmox_download_file.ubuntu_lxc.id
+  template_file_id = proxmox_download_file.ubuntu_lxc[each.value.node].id
   datastore_disk   = var.proxmox_datastore_disk
   cores            = each.value.cores
   memory           = each.value.memory
@@ -128,9 +116,48 @@ module "local_ct" {
   in_private_subnet = !each.value.public
   primary_ip_cidr   = "${each.value.ip}/24"
 
-  hookscript_file_id = proxmox_virtual_environment_file.lxc_hook[each.key].id
-
   tags = [var.project_name, local.local_cloud_tag, each.value.role]
+}
+
+# Bootstrap de cada CT (sustituye al antiguo hookscript de Proxmox, que exigia
+# root@pam). Terraform entra por SSH al nodo PVE que aloja el CT —con la misma
+# clave que el provider— y ejecuta el script DENTRO del CT via `pct exec`. Esto
+# no requiere root@pam (el API sigue usando el token): `pct exec` es local al
+# nodo. Idempotente; se re-ejecuta si cambia el CT o el script.
+resource "null_resource" "lxc_bootstrap" {
+  for_each = local.local_cts
+
+  triggers = {
+    container = module.local_ct[each.key].id
+    script = sha1(templatefile("${path.module}/cloud-init/lxc-bootstrap.sh.tftpl", {
+      ssh_pubkey = var.local_ct_ssh_pubkey
+    }))
+  }
+
+  connection {
+    type        = "ssh"
+    host        = var.proxmox_node_ssh_hosts[each.value.node]
+    user        = var.proxmox_ssh_user
+    private_key = var.proxmox_ssh_private_key
+  }
+
+  # Sube el script al nodo y lo inyecta en el CT por stdin de `pct exec`.
+  provisioner "file" {
+    content = templatefile("${path.module}/cloud-init/lxc-bootstrap.sh.tftpl", {
+      ssh_pubkey = var.local_ct_ssh_pubkey
+    })
+    destination = "/tmp/wh-bootstrap-${each.value.vmid}.sh"
+  }
+
+  provisioner "remote-exec" {
+    inline = [
+      "set -e",
+      "pct start ${each.value.vmid} >/dev/null 2>&1 || true",
+      "for i in $(seq 1 60); do pct status ${each.value.vmid} | grep -q running && break; sleep 1; done",
+      "pct exec ${each.value.vmid} -- bash -se < /tmp/wh-bootstrap-${each.value.vmid}.sh",
+      "rm -f /tmp/wh-bootstrap-${each.value.vmid}.sh",
+    ]
+  }
 }
 
 # ---- Cloudflare Tunnel: ingesta externa hacia NiFi --------------------------

@@ -5,11 +5,12 @@
 # domestico, sin ingress publico). Este modulo publica el endpoint de ingesta de
 # NiFi en `ingest.<zona>` via un tunel Cloudflare: `cloudflared` corre en el CT
 # de NiFi y marca SALIENTE hacia el edge de Cloudflare (sin abrir puertos ni
-# port-forward). Cloudflare Access protege el endpoint con un service token que
-# llevan los collectors.
+# port-forward). El endpoint queda PUBLICO: la autenticacion la hace NiFi a nivel
+# de aplicacion validando la licencia (codigo, portatil) antes de enrutar a Kafka
+# (no hay Cloudflare Access en el edge).
 #
-# Lo que crea OpenTofu aqui es solo el plano de control (tunel + DNS + Access +
-# token). El demonio `cloudflared` lo instala Ansible en el CT de NiFi con el
+# Lo que crea OpenTofu aqui es solo el plano de control (tunel + DNS + token).
+# El demonio `cloudflared` lo instala Ansible en el CT de NiFi con el
 # `tunnel_token` que este modulo exporta.
 
 terraform {
@@ -90,34 +91,6 @@ resource "cloudflare_record" "ingest" {
   comment = "WebHardMon ingest tunnel"
 }
 
-# --- Cloudflare Access (autenticacion en el edge) ----------------------------
-# Service token que llevan los collectors. El secreto solo se ve al crearse.
-resource "cloudflare_zero_trust_access_service_token" "collector" {
-  account_id = var.account_id
-  name       = "webhardmon-collector"
-}
-
-# Politica no-identidad: permite solo a portadores del service token.
-resource "cloudflare_zero_trust_access_policy" "collector" {
-  account_id = var.account_id
-  name       = "webhardmon-collector-token"
-  decision   = "non_identity"
-
-  include {
-    service_token = [cloudflare_zero_trust_access_service_token.collector.id]
-  }
-}
-
-# Aplicacion Access que cubre el hostname de ingesta.
-resource "cloudflare_zero_trust_access_application" "ingest" {
-  account_id       = var.account_id
-  name             = "WebHardMon ingest"
-  domain           = local.ingest_hostname
-  type             = "self_hosted"
-  session_duration = "24h"
-  policies         = [cloudflare_zero_trust_access_policy.collector.id]
-}
-
 # --- Outputs -----------------------------------------------------------------
 output "ingest_hostname" {
   value = local.ingest_hostname
@@ -130,16 +103,5 @@ output "tunnel_id" {
 # Token que consume `cloudflared` en el CT de NiFi (lo usa Ansible).
 output "tunnel_token" {
   value     = cloudflare_zero_trust_tunnel_cloudflared.this.tunnel_token
-  sensitive = true
-}
-
-# Credenciales del service token para configurar los collectors.
-output "access_client_id" {
-  value     = cloudflare_zero_trust_access_service_token.collector.client_id
-  sensitive = true
-}
-
-output "access_client_secret" {
-  value     = cloudflare_zero_trust_access_service_token.collector.client_secret
   sensitive = true
 }

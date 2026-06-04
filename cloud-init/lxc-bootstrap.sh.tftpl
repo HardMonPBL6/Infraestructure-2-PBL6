@@ -1,23 +1,10 @@
 #!/usr/bin/env bash
-# Hookscript Proxmox para CTs WebHardMon.
-# Provisiona usuario ubuntu, SSH, hardening basico. NO instala WireGuard:
-# el acceso al CT va por la red LAN (10.10.2.0/24 / 10.10.3.0/24) anunciada
-# a la malla WireGuard por el gateway local.
-set -eu
-
-vmid="$1"
-phase="$2"
-
-if [ "$phase" != "post-start" ]; then
-    exit 0
-fi
-
-marker="/var/lib/lxc/$vmid.webhardmon-provisioned"
-if [ -f "$marker" ]; then
-    exit 0
-fi
-
-pct exec "$vmid" -- bash -se <<'EOS'
+# Bootstrap de un CT LXC WebHardMon.
+# Se ejecuta DENTRO del CT via `pct exec <vmid> -- bash -se`, lanzado por Terraform
+# (null_resource.lxc_bootstrap) entrando por SSH al nodo PVE que aloja el CT.
+# Sustituye al antiguo hookscript de Proxmox (que exigia root@pam). NO instala
+# WireGuard: el acceso al CT va por la LAN (10.10.2.0/24 / 10.10.3.0/24) anunciada
+# a la malla WireGuard por el gateway local. Idempotente.
 set -eu
 export DEBIAN_FRONTEND=noninteractive
 
@@ -48,6 +35,3 @@ PasswordAuthentication no
 KbdInteractiveAuthentication no
 SSH
 systemctl enable --now ssh 2>/dev/null || systemctl enable --now sshd
-EOS
-
-touch "$marker"

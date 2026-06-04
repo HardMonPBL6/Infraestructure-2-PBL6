@@ -97,15 +97,3 @@ output "cloudflared_tunnel_token" {
   value       = var.cloudflare_enabled ? module.cloudflare_tunnel[0].tunnel_token : null
   sensitive   = true
 }
-
-output "collector_access_client_id" {
-  description = "Client ID del service token Cloudflare Access para los collectors."
-  value       = var.cloudflare_enabled ? module.cloudflare_tunnel[0].access_client_id : null
-  sensitive   = true
-}
-
-output "collector_access_client_secret" {
-  description = "Client secret del service token (solo visible tras apply)."
-  value       = var.cloudflare_enabled ? module.cloudflare_tunnel[0].access_client_secret : null
-  sensitive   = true
-}

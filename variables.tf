@@ -49,6 +49,16 @@ variable "proxmox_nodes" {
   default     = ["pve-local", "pve-local2"]
 }
 
+variable "proxmox_node_ssh_hosts" {
+  description = "Mapa nombre de nodo PVE -> host SSH. Lo usa el bootstrap de CTs (null_resource.lxc_bootstrap) para entrar por SSH al nodo que aloja cada CT y lanzar `pct exec`. Reutiliza la misma clave que proxmox_ssh_private_key."
+  type        = map(string)
+  default = {
+    "pve-local"  = "10.10.1.15"
+    "pve-local2" = "10.10.1.16"
+    "pve-local3" = "10.10.1.17"
+  }
+}
+
 variable "proxmox_datastore_disk" {
   description = "Datastore para discos de los CTs."
   type        = string
@@ -269,7 +279,7 @@ variable "cloudflare_enabled" {
 }
 
 variable "cloudflare_api_token" {
-  description = "API token Cloudflare (Account: Cloudflare Tunnel:Edit + Access: Apps and Policies:Edit + Access: Service Tokens:Edit; Zone: DNS:Edit). Requerido si cloudflare_enabled."
+  description = "API token Cloudflare (Account: Cloudflare Tunnel:Edit; Zone: DNS:Edit). Requerido si cloudflare_enabled."
   type        = string
   sensitive   = true
   default     = ""

@@ -35,7 +35,7 @@ Keys are generated manually (`wg genkey | tee private.key | wg pubkey > public.k
 
 **Avro — Confluent Schema Registry.** Avro is the on-the-wire format for Kafka. A Confluent Schema Registry singleton runs on GCP-A `node-01` (co-located with Kafka, on the node that has no Java so RAM is free). NiFi serializes records against it; the Java bridge deserializes via `KafkaAvroDeserializer`. Compatibility is `BACKWARD` so the collector's schema can evolve without breaking deployed consumers. NiFi (local cloud) reaches the registry over WireGuard via node-01's gateway IP (`10.0.0.20:8081`).
 
-**External ingest — Cloudflare Tunnel.** The collector runs on **end-user PCs outside all three clouds**, so it can't reach NiFi via WireGuard (not peers) or the LAN (behind home NAT). `modules/cloudflare-tunnel` publishes NiFi's ingest listener at `ingest.<zone>` via a named Cloudflare Tunnel: `cloudflared` runs on the NiFi CT and dials **out** to Cloudflare (no port-forward, no inbound firewall). **Cloudflare Access** with a service token authenticates collectors at the edge. WireGuard carries only the inter-cloud mesh + admin SSH; Cloudflare Tunnel handles external→ingest only. Gated by `var.cloudflare_enabled`; outputs `cloudflared_tunnel_token` (for Ansible) + `collector_access_client_id/secret` (for the collector installer).
+**External ingest — Cloudflare Tunnel.** The collector runs on **end-user PCs outside all three clouds**, so it can't reach NiFi via WireGuard (not peers) or the LAN (behind home NAT). `modules/cloudflare-tunnel` publishes NiFi's ingest listener at `ingest.<zone>` via a named Cloudflare Tunnel: `cloudflared` runs on the NiFi CT and dials **out** to Cloudflare (no port-forward, no inbound firewall). The ingest endpoint is **public** — there is no Cloudflare Access at the edge; authentication is done by NiFi at the application layer, which validates the licence `(codigo, portatil)` before routing to Kafka. WireGuard carries only the inter-cloud mesh + admin SSH; Cloudflare Tunnel handles external→ingest only. Gated by `var.cloudflare_enabled`; outputs `cloudflared_tunnel_token` (for Ansible).
 
 **Lambda Architecture data flow.** Collector → Cloudflare Tunnel → NiFi (validate licence, serialize Avro) → Kafka. From Kafka the **Java bridge** (gcp-a node-02) computes StressScore via RMI and writes both the **hot path** (Cassandra, recent data → Grafana) and the **cold path** (HDFS Parquet, local cloud). An hourly MapReduce job on the HDFS NameNode aggregates Parquet → **HBase `webhardmon_hourly`** (the served/batch layer → Grafana REST). See `MAPREDUCE-HBASE.md`.
 
@@ -96,7 +96,7 @@ modules/
   gcp-network/       # VPC + 2 subnets + Cloud Router + Cloud NAT + firewall rules
   gcp-vm/            # GCE Ubuntu 24.04, shielded VM, static internal IP, cloud-init
   gcp-registry/      # Artifact Registry (Docker) per GCP project, repo "<prefix>-docker"
-  cloudflare-tunnel/ # Named tunnel + DNS + Access (service token) for external ingest
+  cloudflare-tunnel/ # Named tunnel + DNS for external ingest (no edge auth; NiFi validates licence)
 ```
 
 `main.tf` is the orchestration layer (order: WireGuard static IPs → local CTs + hookscripts + Cloudflare tunnel → GCP-A network/SA/VMs/registry → GCP-B same). `outputs.tf` builds the Ansible inventory.

@@ -41,11 +41,6 @@ variable "in_private_subnet" {
   default     = false
 }
 
-variable "hookscript_file_id" {
-  description = "ID volid del snippet hookscript (ej. local:snippets/wh-110.sh)."
-  type        = string
-}
-
 variable "tags" {
   type    = list(string)
   default = []
@@ -117,8 +112,6 @@ resource "proxmox_virtual_environment_container" "this" {
       bridge = var.public_bridge
     }
   }
-
-  hook_script_file_id = var.hookscript_file_id
 
   lifecycle {
     ignore_changes = [
