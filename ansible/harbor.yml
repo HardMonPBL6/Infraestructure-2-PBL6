@@ -1,0 +1,28 @@
+---
+# ============================================================================
+# Despliega el registro de contenedores Harbor (con TLS) en el CT local.
+#
+# Target: grupo [harbor] = CT harbor-01 (nube local, subred pública 10.10.2.x).
+#
+# TLS: cert público de Let's Encrypt emitido por reto DNS-01 (plugin Cloudflare).
+# El registro DNS harbor.<zona> -> IP LAN del CT lo crea OpenTofu
+# (cloudflare_record.harbor, DNS-only). Los clientes Docker (NiFi, MapReduce)
+# confían en Harbor sin CA extra ni insecure-registries.
+#
+# Prerequisitos:
+#   - var.cloudflare_enabled = true y `tofu apply` hecho (registro DNS creado).
+#   - harbor_hostname en group_vars/cloud_local.yml (= tofu output harbor_hostname).
+#   - Secretos en ansible/vault.yml:
+#       vault_harbor_admin_password, vault_harbor_db_password,
+#       vault_cloudflare_api_token (token con Zone:DNS:Edit).
+#
+# ansible-playbook -i ansible/inventory.ini ansible/harbor.yml --ask-vault-pass
+# ============================================================================
+
+- name: Desplegar Harbor (TLS) en la nube local
+  hosts: harbor
+  become: true
+  gather_facts: true
+  roles:
+    - docker
+    - harbor

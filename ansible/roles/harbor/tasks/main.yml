@@ -1,0 +1,121 @@
+---
+# roles/harbor/tasks/main.yml
+#
+# Despliega Harbor con TLS en el CT local (harbor-01). Pasos:
+#   1. Instala certbot + plugin DNS Cloudflare + docker compose v2.
+#   2. Emite el cert de Let's Encrypt por reto DNS-01 (no necesita inbound).
+#   3. Descarga + desempaqueta el instalador de Harbor.
+#   4. Renderiza harbor.yml (hostname, HTTPS 443, rutas del cert).
+#   5. Ejecuta el instalador (docker compose up) — idempotente.
+#   6. Instala un deploy-hook de renovación que reinicia Harbor.
+#
+# Prerequisito: roles/docker (lo encadena ansible/harbor.yml antes de este rol).
+# El registro DNS harbor.<zona> -> IP LAN lo crea OpenTofu (cloudflare_record.harbor).
+
+- name: Comprobar que harbor_hostname está definido
+  ansible.builtin.assert:
+    that:
+      - harbor_hostname is defined
+      - harbor_hostname | length > 0
+      - "'.' in harbor_hostname"
+    fail_msg: >-
+      harbor_hostname no está definido. Ponlo en group_vars/cloud_local.yml
+      (= `tofu output harbor_hostname`, p.ej. harbor.example.com).
+
+- name: Instalar certbot, plugin DNS Cloudflare y docker compose v2
+  ansible.builtin.apt:
+    name:
+      - certbot
+      - python3-certbot-dns-cloudflare
+      - docker-compose-v2
+    update_cache: true
+    state: present
+
+- name: Escribir credenciales de Cloudflare para certbot (DNS-01)
+  ansible.builtin.template:
+    src: cloudflare.ini.j2
+    dest: "{{ harbor_cf_credentials_file }}"
+    owner: root
+    group: root
+    mode: "0600"
+
+- name: Emitir certificado Let's Encrypt por DNS-01
+  ansible.builtin.command:
+    argv:
+      - certbot
+      - certonly
+      - --non-interactive
+      - --agree-tos
+      - --dns-cloudflare
+      - --dns-cloudflare-credentials
+      - "{{ harbor_cf_credentials_file }}"
+      - --dns-cloudflare-propagation-seconds
+      - "{{ harbor_certbot_propagation_seconds | string }}"
+      - -m
+      - "{{ harbor_certbot_email }}"
+      - -d
+      - "{{ harbor_hostname }}"
+      - "{{ '--staging' if harbor_certbot_staging | bool else '--no-eff-email' }}"
+    creates: "{{ harbor_cert_dir }}/fullchain.pem"
+
+- name: Descargar el instalador de Harbor
+  ansible.builtin.get_url:
+    url: "{{ harbor_installer_url }}"
+    dest: "{{ harbor_installer_tgz }}"
+    mode: "0644"
+
+- name: Desempaquetar el instalador de Harbor
+  ansible.builtin.unarchive:
+    src: "{{ harbor_installer_tgz }}"
+    dest: "/opt"
+    remote_src: true
+    creates: "{{ harbor_install_dir }}/install.sh"
+
+- name: Asegurar el directorio de datos de Harbor
+  ansible.builtin.file:
+    path: "{{ harbor_data_volume }}"
+    state: directory
+    mode: "0755"
+
+- name: Renderizar harbor.yml
+  ansible.builtin.template:
+    src: harbor.yml.j2
+    dest: "{{ harbor_install_dir }}/harbor.yml"
+    owner: root
+    group: root
+    mode: "0640"
+  notify: Reinstalar Harbor
+
+- name: Instalar deploy-hook de renovación del cert (reinicia Harbor)
+  ansible.builtin.template:
+    src: renew-deploy-hook.sh.j2
+    dest: "/etc/letsencrypt/renewal-hooks/deploy/harbor.sh"
+    owner: root
+    group: root
+    mode: "0755"
+
+- name: Comprobar si Harbor ya está instalado (docker-compose.yml generado)
+  ansible.builtin.stat:
+    path: "{{ harbor_install_dir }}/docker-compose.yml"
+  register: harbor_compose
+
+- name: Ejecutar el instalador de Harbor (primera vez)
+  ansible.builtin.command:
+    cmd: ./install.sh
+    chdir: "{{ harbor_install_dir }}"
+  when: not harbor_compose.stat.exists
+  register: harbor_install
+  changed_when: "'http://' in harbor_install.stdout or 'https://' in harbor_install.stdout or harbor_install.rc == 0"
+
+- name: Asegurar que el certbot.timer (renovación automática) está activo
+  ansible.builtin.systemd:
+    name: certbot.timer
+    enabled: true
+    state: started
+
+- name: Resumen del despliegue de Harbor
+  ansible.builtin.debug:
+    msg:
+      - "Harbor TLS: https://{{ harbor_hostname }}  (admin / contraseña del vault)"
+      - "Cert: {{ harbor_cert_dir }}/fullchain.pem (Let's Encrypt{{ ' STAGING' if harbor_certbot_staging | bool else '' }})"
+      - "Datos: {{ harbor_data_volume }}"

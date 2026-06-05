@@ -17,8 +17,16 @@ locals {
       cloud        = "local"
     }],
     # HDFS: 1 CT por nodo PVE en la LAN de gestion. Cada host lleva varios grupos
-    # ([hdfs] + [hdfs_namenode|hdfs_datanode], y el NameNode tambien [mapreduce]).
+    # ([hdfs] + [hdfs_namenode|hdfs_datanode]). MapReduce va en su propio CT (abajo).
     [for k, v in local.hdfs_cts : {
+      name         = v.hostname
+      ansible_host = v.ip
+      roles        = v.roles
+      cloud        = "local"
+    }],
+    # MapReduce: CT dedicado de la capa batch. Lleva el rol [mapreduce] (antes lo
+    # llevaba el NameNode); Ansible (roles/mapreduce) corre ahi el job efimero.
+    [for k, v in local.mapreduce_cts : {
       name         = v.hostname
       ansible_host = v.ip
       roles        = v.roles
@@ -98,6 +106,11 @@ output "wireguard_gateway_ips" {
 output "ingest_hostname" {
   description = "Hostname publico de ingesta para los collectors."
   value       = var.cloudflare_enabled ? module.cloudflare_tunnel[0].ingest_hostname : null
+}
+
+output "harbor_hostname" {
+  description = "FQDN del registro Harbor (TLS via Let's Encrypt DNS-01). Ponerlo en ansible/group_vars/cloud_local.yml (harbor_hostname) y usarlo como HARBOR_HOST en build-and-push.sh."
+  value       = var.cloudflare_enabled && length(cloudflare_record.harbor) > 0 ? "${var.cloudflare_harbor_subdomain}.${var.cloudflare_zone_name}" : null
 }
 
 output "cloudflared_tunnel_token" {

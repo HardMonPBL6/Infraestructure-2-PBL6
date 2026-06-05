@@ -1,0 +1,47 @@
+# {{ ansible_managed }}
+# Config de Harbor — generada por Ansible (roles/harbor). TLS con cert público de
+# Let's Encrypt (DNS-01), de modo que los clientes Docker confían sin CA extra.
+hostname: {{ harbor_hostname }}
+
+http:
+  port: {{ harbor_http_port }}
+
+https:
+  port: {{ harbor_https_port }}
+  certificate: {{ harbor_cert_dir }}/fullchain.pem
+  private_key: {{ harbor_cert_dir }}/privkey.pem
+
+harbor_admin_password: {{ harbor_admin_password }}
+
+database:
+  password: {{ harbor_db_password }}
+  max_idle_conns: 100
+  max_open_conns: 900
+
+data_volume: {{ harbor_data_volume }}
+
+trivy:
+  ignore_unfixed: false
+  skip_update: false
+  offline_scan: false
+
+jobservice:
+  max_job_workers: 10
+
+log:
+  level: info
+  local:
+    rotate_count: 50
+    rotate_size: 200M
+    location: /var/log/harbor
+
+_version: {{ harbor_config_version }}
+
+proxy:
+  http_proxy:
+  https_proxy:
+  no_proxy:
+  components:
+    - core
+    - jobservice
+    - trivy

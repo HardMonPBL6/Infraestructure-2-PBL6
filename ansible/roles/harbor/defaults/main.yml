@@ -1,0 +1,34 @@
+---
+# roles/harbor/defaults/main.yml — registro de contenedores Harbor con TLS.
+#
+# TLS: cert público de Let's Encrypt emitido por reto DNS-01 (plugin Cloudflare),
+# así los clientes Docker confían en Harbor sin CA extra ni insecure-registries.
+# El registro DNS (A, grey-cloud, harbor.<zona> -> IP LAN del CT) lo crea OpenTofu.
+
+# ── Versión e instalador ─────────────────────────────────────────────────────
+harbor_version: "v2.11.1"
+harbor_config_version: "2.11.0"          # campo _version de harbor.yml (migración)
+harbor_installer_flavor: "online"        # online (descarga ligera) | offline
+harbor_install_dir: "/opt/harbor"
+harbor_installer_tgz: "/opt/harbor-{{ harbor_installer_flavor }}-installer-{{ harbor_version }}.tgz"
+harbor_installer_url: "https://github.com/goharbor/harbor/releases/download/{{ harbor_version }}/harbor-{{ harbor_installer_flavor }}-installer-{{ harbor_version }}.tgz"
+
+# ── Red / puertos ────────────────────────────────────────────────────────────
+# harbor_hostname se define en group_vars/cloud_local.yml (= tofu output harbor_hostname).
+harbor_http_port: 80                      # Harbor redirige 80 -> 443
+harbor_https_port: 443
+harbor_data_volume: "/data/harbor"
+
+# ── Certificado (Let's Encrypt DNS-01 vía Cloudflare) ────────────────────────
+harbor_cert_dir: "/etc/letsencrypt/live/{{ harbor_hostname }}"
+harbor_cf_credentials_file: "/etc/letsencrypt/cloudflare.ini"
+harbor_certbot_propagation_seconds: 30
+harbor_certbot_staging: false             # true = entorno de pruebas LE (evita rate-limit)
+# Email de registro ACME (derivado del dominio; overrideable en group_vars).
+harbor_certbot_email: "admin@{{ harbor_hostname.split('.')[1:] | join('.') }}"
+
+# ── Secretos (definir en ansible/vault.yml) ──────────────────────────────────
+harbor_admin_password: "{{ vault_harbor_admin_password }}"
+harbor_db_password: "{{ vault_harbor_db_password }}"
+# Token Cloudflare con Zone:DNS:Edit (el mismo que usa OpenTofu sirve).
+harbor_cloudflare_dns_token: "{{ vault_cloudflare_api_token }}"

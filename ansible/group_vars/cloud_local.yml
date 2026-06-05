@@ -2,16 +2,24 @@
 # group_vars/cloud_local.yml — nube local (Proxmox LXC).
 # Aplica a todos los hosts del grupo [cloud_local] generado por OpenTofu.
 
-# Registro de contenedores local: Harbor en el nodo Proxmox dedicado.
-# Los LXC hacen docker pull/push contra esta dirección.
-# Para que funcione docker pull, el LXC debe tener harbor en insecure-registries
-# (HTTP sin TLS) o Harbor configurado con TLS. Ver HDFS/README.md.
-container_registry_local: "10.10.1.50:5000"
+# Registro de contenedores local: Harbor (CT harbor-01) servido con TLS bajo un
+# FQDN de Cloudflare. El cert es de Let's Encrypt (DNS-01), público y de confianza,
+# así que los LXC hacen docker pull/push por HTTPS SIN insecure-registries ni CA
+# extra. El registro DNS (A, grey-cloud, -> IP LAN del CT) lo crea OpenTofu.
+#
+# ↓ PONER el FQDN real: harbor.<cloudflare_zone_name> (= `tofu output harbor_hostname`).
+harbor_hostname: "harbor.example.com"
 
-# Para el rol docker: autentica contra Harbor con usuario/contraseña.
+# Prefijo COMPLETO de las imágenes locales = host + proyecto Harbor. Debe coincidir
+# con lo que sube build-and-push.sh (registry_for local = $HARBOR_HOST/$PROJECT_NAME),
+# igual que container_registry en GCP incluye el repo. Las imágenes quedan como
+# harbor.<zona>/{{ project_name }}/<servicio>:<tag> (lo consumen nifi_image, mr_image).
+container_registry_local: "{{ harbor_hostname }}/{{ project_name }}"
+
+# Para el rol docker / `docker login`: el HOST de Harbor (sin la ruta del proyecto).
 # docker_registry_host vacío = el rol omite gcloud auth (no GCP).
 docker_registry_host: ""
-harbor_registry: "10.10.1.50:5000"
+harbor_registry: "{{ harbor_hostname }}"
 
 # La nube local no usa Spot VMs (son LXC Proxmox persistentes).
 node_is_spot: false

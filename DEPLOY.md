@@ -12,7 +12,8 @@ El despliegue tiene **tres fases**: infraestructura (OpenTofu), imágenes Docker
 │  NUBE LOCAL · Proxmox LXC                                                   │
 │  ┌──────────────┐  ┌─────────────────────────────────────────┐              │
 │  │   Harbor     │  │  NiFi + cloudflared                     │              │
-│  │ 10.10.1.50   │  │  UI :8080  │  Ingest :8081 (CF Tunnel)  │              │
+│  │ 10.10.2.111  │  │  UI :8080  │  Ingest :8081 (CF Tunnel)  │              │
+│  │ (TLS :443)   │  │                                         │              │
 │  └──────────────┘  └─────────────────────────────────────────┘              │
 │  ┌──────────────────────────────────────────────────────────┐               │
 │  │  HDFS  NameNode :10.10.1.21  DataNode-0 :21  DN-1 :23   │               │
@@ -97,7 +98,7 @@ tofu apply   # ~5-8 min; crea VMs, redes, WireGuard, Artifact Registry, inventor
 ```
 
 **Qué crea este `tofu apply`:**
-- **Proxmox**: LXC containers (host Docker) para NiFi, Harbor y los 3 nodos HDFS (10.10.1.21/22/23, ver 1.4)
+- **Proxmox**: LXC containers (host Docker) para NiFi, Harbor, los 3 nodos HDFS (10.10.1.21/22/23, ver 1.4) y el CT dedicado de MapReduce (10.10.1.24, ver 3.6)
 - **GCP-A**: VPC + subredes pública/privada + Cloud NAT + 3 VMs spot + Artifact Registry
 - **GCP-B**: VPC + subredes pública/privada + Cloud NAT + 3 VMs spot + Artifact Registry
 - **WireGuard**: IPs estáticas reservadas, `wg0.conf` inyectado vía cloud-init en node-01 de cada nube
@@ -118,9 +119,11 @@ host-Docker por nodo PVE en la LAN de gestión (`var.hdfs_nodes`):
 
 | CT | Nodo PVE | IP | Rol |
 |----|----------|----|-----|
-| `hdfs-namenode`  | pve-local  | 10.10.1.21 | NameNode (+ MapReduce) |
+| `hdfs-namenode`  | pve-local  | 10.10.1.21 | NameNode |
 | `hdfs-datanode0` | pve-local2 | 10.10.1.22 | DataNode |
 | `hdfs-datanode1` | pve-local3 | 10.10.1.23 | DataNode |
+
+> El mismo `tofu apply` crea además el CT **`mapreduce`** (`10.10.1.24`, pve-local, `var.mapreduce_node`), host del job batch — ver §3.6. No es un nodo HDFS.
 
 El clúster HDFS en sí (contenedores `bde2020/hadoop-*`) lo despliega **Ansible** en la
 fase de servicios, igual que el resto: `ansible-playbook -i ansible/inventory.ini ansible/hdfs.yml`
@@ -148,16 +151,17 @@ cd /ruta/al/repo/Infraestructure-2-PBL6/docker/
 # Configurar variables de entorno
 export GCP_A_PROJECT="webhardmon-a-XXXXX"
 export GCP_B_PROJECT="webhardmon-b-XXXXX"
-export HARBOR_HOST="10.10.1.50:5000"
+export HARBOR_HOST="harbor.example.com"   # = tofu output harbor_hostname (TLS, Let's Encrypt)
 export IMAGE_TAG="1.0"
 
 # Autenticación
 gcloud auth configure-docker \
   europe-southwest1-docker.pkg.dev,europe-west1-docker.pkg.dev
 
-# Para Harbor (añadir a Docker Desktop si es Windows o en daemon.json):
-# "insecure-registries": ["10.10.1.50:5000"]
-docker login 10.10.1.50:5000
+# Harbor sirve con TLS (cert público de Let's Encrypt), así que NO hace falta
+# insecure-registries ni CA extra. OJO con el orden: para SUBIR imágenes locales
+# (nifi, mapreduce) Harbor ya debe estar desplegado (ver 3.1b) y resoluble.
+docker login "$HARBOR_HOST"
 
 # Construir y subir TODO (orden no importa, son independientes)
 ./build-and-push.sh
@@ -209,6 +213,9 @@ vault_grafana_admin_password:     "elige-una-password"
 vault_matomo_mysql_password:      "elige-una-password"
 vault_matomo_mysql_root_password: "elige-una-password"
 vault_cloudflared_tunnel_token:   "<salida de: tofu output -raw cloudflared_tunnel_token>"
+vault_harbor_admin_password:      "elige-una-password"
+vault_harbor_db_password:         "elige-una-password"
+vault_cloudflare_api_token:       "<token Cloudflare con Zone:DNS:Edit — para el cert TLS de Harbor (DNS-01)>"
 ```
 
 ```bash
@@ -227,6 +234,22 @@ ansible-playbook -i ansible/inventory.ini ansible/security.yml \
 ```
 
 Cambia el puerto SSH de 22 → 2222 en todos los hosts. Los playbooks siguientes se conectan en 2222.
+
+### 3.1b Harbor — registro de contenedores local (TLS)
+
+Despliega el registro **antes** de subir/usar imágenes locales (nifi, mapreduce).
+Sirve con TLS bajo `harbor.<zona>` (cert de Let's Encrypt por DNS-01). El registro
+DNS lo crea OpenTofu; pon el FQDN en `group_vars/cloud_local.yml` (`harbor_hostname`).
+
+```bash
+ansible-playbook -i ansible/inventory.ini ansible/harbor.yml \
+  --vault-password-file ~/.vault_pass
+
+# Acceso: https://harbor.<zona>  (admin / vault_harbor_admin_password)
+```
+
+> Después de esto, vuelve a la Fase 2 para `docker login harbor.<zona>` y
+> `./build-and-push.sh nifi mapreduce` (las imágenes locales van a este Harbor).
 
 ### 3.2 GCP-A — servicios de streaming
 
@@ -327,15 +350,18 @@ ansible-playbook -i ansible/inventory.ini ansible/web.yml \
 
 ### 3.6 MapReduce batch (cuando haya datos en HDFS)
 
+El job corre como contenedor Docker **efímero** en su CT dedicado (`10.10.1.24`), no
+dentro del NameNode. Requiere la imagen `mapreduce` en Harbor (Fase 2,
+`./build-and-push.sh mapreduce`).
+
 ```bash
-# Desplegar job MapReduce en el HDFS NameNode
-# (requiere Docker instalado en el nodo de control)
+# Desplegar el job MapReduce en su CT dedicado (instala Docker + pull imagen + cron)
 ansible-playbook -i ansible/inventory.ini ansible/mapreduce.yml \
   --vault-password-file ~/.vault_pass
 
-# El cron corre cada hora a :10 → agrega HDFS Parquet → HBase webhardmon_hourly
+# El cron corre cada hora a :10 → docker run --rm → agrega HDFS Parquet → HBase webhardmon_hourly
 # Ejecución manual:
-ssh root@10.10.1.21 /usr/local/bin/run-webhardmon-aggregation.sh
+ssh -p 2222 ubuntu@10.10.1.24 "sudo /usr/local/bin/run-webhardmon-aggregation.sh"
 ```
 
 ---
@@ -374,8 +400,8 @@ ssh root@10.10.1.21 /usr/local/bin/run-webhardmon-aggregation.sh
 | **HDFS NameNode** | 10.10.1.21 | 9000 (RPC), 9870 (UI) | Data lake Parquet — capa cold del Lambda Architecture |
 | **HDFS DataNode-0** | 10.10.1.22 | — | Almacenamiento distribuido (replicación ×2) |
 | **HDFS DataNode-1** | 10.10.1.23 | — | Almacenamiento distribuido |
-| **Harbor** | 10.10.1.50 | 5000 | Registro Docker para imágenes de la nube local |
-| **MapReduce job** | 10.10.1.21 (cron) | — | Lee Parquet HDFS → agrega → escribe HBase (cada hora :10) |
+| **Harbor** | 10.10.2.111 (`harbor.<zona>`) | 443 (TLS) | Registro Docker para imágenes de la nube local (cert Let's Encrypt DNS-01) |
+| **MapReduce job** | 10.10.1.24 (CT dedicado, cron) | — | Contenedor efímero: lee Parquet HDFS → agrega → escribe HBase (cada hora :10) |
 
 ---
 
@@ -399,7 +425,7 @@ Kafka 9092 (3 brokers GCP-A, Avro, RF=3)
    │            [cron :10 cada hora]
    │                    ▼
    │             MapReduce job
-   │             (hadoop jar en NameNode)
+   │             (contenedor dedicado 10.10.1.24)
    │                    │ agrega avg/min/max/count por licencia+hora
    │                    ▼
    │             HBase webhardmon_hourly ──────────────► Grafana:3000
@@ -429,7 +455,7 @@ curl -I http://10.0.0.30:8080          # Web Panel: HTTP 200
 curl http://10.0.0.30:8085/            # HBase REST: lista de tablas
 
 # HDFS
-ssh root@10.10.1.21 \
+ssh -p 2222 ubuntu@10.10.1.21 \
   "docker exec webhardmon-hdfs-namenode hdfs dfsadmin -report" | grep "Live datanodes"
 # → Live datanodes (2):
 

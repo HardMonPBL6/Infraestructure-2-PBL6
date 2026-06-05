@@ -335,6 +335,12 @@ variable "cloudflare_ingest_subdomain" {
   default     = "ingest"
 }
 
+variable "cloudflare_harbor_subdomain" {
+  description = "Subdominio del registro Harbor -> <subdominio>.<zona>. Registro DNS-only (grey cloud) apuntando a la IP LAN del CT Harbor; el cert TLS lo emite Let's Encrypt via DNS-01 (Ansible). No expone Harbor a Internet."
+  type        = string
+  default     = "harbor"
+}
+
 variable "nifi_ingest_port" {
   description = "Puerto del listener HTTP de ingesta de NiFi dentro del CT (destino del tunel)."
   type        = number
@@ -346,7 +352,7 @@ variable "nifi_ingest_port" {
 # -----------------------------------------------------------------------------
 
 variable "topology" {
-  description = "Numero de CTs genericos round-robin de la nube LOCAL (Proxmox). HDFS NO se cuenta aqui: se ancla 1-por-nodo en la LAN de gestion (ver var.hdfs_nodes). MapReduce tampoco: corre sobre el NameNode HDFS. Los servicios GCP se co-localizan en nodos compartidos spot (ver var.gcp_a_nodes / var.gcp_b_nodes)."
+  description = "Numero de CTs genericos round-robin de la nube LOCAL (Proxmox). HDFS NO se cuenta aqui: se ancla 1-por-nodo en la LAN de gestion (ver var.hdfs_nodes). MapReduce tampoco: tiene su propio CT dedicado (ver var.mapreduce_node). Los servicios GCP se co-localizan en nodos compartidos spot (ver var.gcp_a_nodes / var.gcp_b_nodes)."
   type = object({
     nifi   = number
     harbor = number
@@ -363,7 +369,7 @@ variable "topology" {
 # Cada CT es solo el HOST Docker; HDFS se despliega como contenedores de
 # aplicacion (bde2020/hadoop-*) via Ansible (roles/hdfs). El NameNode esta fijo
 # en 10.10.1.21 (lo asume stressscore-bridge y la capa batch hbase/mapreduce).
-# El NameNode tambien aloja el job MapReduce -> roles ["hdfs","hdfs_namenode","mapreduce"].
+# El job MapReduce vive en su propio CT dedicado (ver var.mapreduce_node).
 variable "hdfs_nodes" {
   description = "Nodos del clúster HDFS. kind = namenode|datanode. Uno por host PVE (round-robin manual sobre var.proxmox_nodes)."
   type = list(object({
@@ -378,6 +384,25 @@ variable "hdfs_nodes" {
     { name = "hdfs-datanode0", kind = "datanode", proxmox_node = "pve-local2", ip = "10.10.1.22", vmid = 122 },
     { name = "hdfs-datanode1", kind = "datanode", proxmox_node = "pve-local3", ip = "10.10.1.23", vmid = 123 },
   ]
+}
+
+# -----------------------------------------------------------------------------
+# MapReduce — CT dedicado para la capa batch (LAN de gestion, junto a HDFS)
+# -----------------------------------------------------------------------------
+# El job batch ya NO corre dentro del contenedor NameNode: tiene su propio CT
+# host-Docker. El rol roles/mapreduce despliega ahi un contenedor dedicado
+# (imagen runnable bde2020/hadoop-base + fat JAR) que se ejecuta efimero (docker
+# run --rm) cada hora via cron. Alcanza HDFS (10.10.1.21:9000) por la LAN y el
+# quorum ZK de HBase (10.30.0.0/16) por la ruta WireGuard del gateway local.
+variable "mapreduce_node" {
+  description = "CT dedicado al job MapReduce batch (nube local, LAN de gestion). Host Docker; el contenedor del job lo despliega Ansible (roles/mapreduce)."
+  type = object({
+    name         = string
+    proxmox_node = string
+    ip           = string
+    vmid         = number
+  })
+  default = { name = "mapreduce", proxmox_node = "pve-local", ip = "10.10.1.24", vmid = 124 }
 }
 
 # -----------------------------------------------------------------------------

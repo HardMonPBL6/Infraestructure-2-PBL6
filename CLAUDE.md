@@ -37,7 +37,7 @@ GCP gateway keys are generated manually (`wg genkey | tee private.key | wg pubke
 
 **External ingest — Cloudflare Tunnel.** The collector runs on **end-user PCs outside all three clouds**, so it can't reach NiFi via WireGuard (not peers) or the LAN (behind home NAT). `modules/cloudflare-tunnel` publishes NiFi's ingest listener at `ingest.<zone>` via a named Cloudflare Tunnel: `cloudflared` runs on the NiFi CT and dials **out** to Cloudflare (no port-forward, no inbound firewall). The ingest endpoint is **public** — there is no Cloudflare Access at the edge; authentication is done by NiFi at the application layer, which validates the licence `(codigo, portatil)` before routing to Kafka. WireGuard carries only the inter-cloud mesh + admin SSH; Cloudflare Tunnel handles external→ingest only. Gated by `var.cloudflare_enabled`; outputs `cloudflared_tunnel_token` (for Ansible).
 
-**Lambda Architecture data flow.** Collector → Cloudflare Tunnel → NiFi (validate licence, serialize Avro) → Kafka. From Kafka the **Java bridge** (gcp-a node-02) computes StressScore via RMI and writes both the **hot path** (Cassandra, recent data → Grafana) and the **cold path** (HDFS Parquet, local cloud). An hourly MapReduce job on the HDFS NameNode aggregates Parquet → **HBase `webhardmon_hourly`** (the served/batch layer → Grafana REST). See `MAPREDUCE-HBASE.md`.
+**Lambda Architecture data flow.** Collector → Cloudflare Tunnel → NiFi (validate licence, serialize Avro) → Kafka. From Kafka the **Java bridge** (gcp-a node-02) computes StressScore via RMI and writes both the **hot path** (Cassandra, recent data → Grafana) and the **cold path** (HDFS Parquet, local cloud). An hourly MapReduce job — running as an ephemeral container on a dedicated MapReduce CT (local cloud) — aggregates Parquet → **HBase `webhardmon_hourly`** (the served/batch layer → Grafana REST). See `MAPREDUCE-HBASE.md`.
 
 ## Common Commands
 
@@ -113,7 +113,9 @@ GCP VMs get **static internal IPs** at offset +10 from the subnet base (`cidrhos
 
 WireGuard VPN subnet: `10.0.0.0/24` (`var.wg_vpn_cidr`), gateways at offsets 1 (mgmt), 10 (local), 20 (gcp-a), 30 (gcp-b). LXC containers get static IPs derived from the Proxmox VMID (`<cidr>.<vmid>`, `var.local_vmid_start` default 110).
 
-> **The HDFS cluster lives on the `10.10.1.x` Proxmox management LAN** and is part of the **root** `tofu apply`. `var.hdfs_nodes` pins one LXC Docker-host per Proxmox node on the management bridge `vmbr0`: NameNode `10.10.1.21` (pve-local), DataNode `10.10.1.22` (pve-local2), DataNode `10.10.1.23` (pve-local3). The LXC is only the Docker host — HDFS itself is deployed as Docker application containers (`bde2020/hadoop-*`) by `ansible/hdfs.yml` (`roles/hdfs`, reusing `roles/docker`), exactly like every other service. The NameNode host also carries the `mapreduce` role (the hourly batch job runs there); replication is ×2 (two DataNodes). The NameNode RPC endpoint `hdfs://10.10.1.21:9000` is assumed by `stressscore-bridge`, `hbase.yml` and `mapreduce.yml`.
+> **The HDFS cluster lives on the `10.10.1.x` Proxmox management LAN** and is part of the **root** `tofu apply`. `var.hdfs_nodes` pins one LXC Docker-host per Proxmox node on the management bridge `vmbr0`: NameNode `10.10.1.21` (pve-local), DataNode `10.10.1.22` (pve-local2), DataNode `10.10.1.23` (pve-local3). The LXC is only the Docker host — HDFS itself is deployed as Docker application containers (`bde2020/hadoop-*`) by `ansible/hdfs.yml` (`roles/hdfs`, reusing `roles/docker`), exactly like every other service. Replication is ×2 (two DataNodes). The NameNode RPC endpoint `hdfs://10.10.1.21:9000` is assumed by `stressscore-bridge`, `hbase.yml` and `mapreduce.yml`.
+
+> **MapReduce runs on its own dedicated CT** (`var.mapreduce_node`: `webhardmon-mapreduce` at `10.10.1.24`, pve-local, mgmt bridge `vmbr0`), provisioned alongside HDFS in the root `tofu apply`. It no longer runs inside the NameNode container. The batch job is a **runnable Docker image** (`docker/mapreduce/` — `bde2020/hadoop-base` + the shaded job JAR) built/pushed to Harbor by `build-and-push.sh` (`[mapreduce]=local`); `ansible/mapreduce.yml` (`roles/docker` + `roles/mapreduce`) installs an hourly cron that runs it ephemerally (`docker run --rm --network host`). It reads `hdfs://10.10.1.21:9000` over the LAN and the HBase ZK quorum (`10.30.0.0/16`) over the local WireGuard gateway route.
 
 ### WireGuard Key Management
 
@@ -121,7 +123,7 @@ Private keys for GCP gateways are passed as sensitive variables → embedded in 
 
 ### Ansible Inventory
 
-`tofu apply` generates `ansible/inventory.ini` (from `ansible/inventory.tmpl`) with hosts grouped by role and by cloud. `ansible_host`: local CTs → LAN IP; GCP gateway nodes (node-01) → WireGuard IP (`10.0.0.20`/`10.0.0.30`); GCP private nodes (node-02/03) → GCP internal IP (reached via the gateway route). Because GCP nodes are shared, a node appears in **multiple** `[role]` groups at once (e.g. gcp-a node-02 ∈ `[kafka]`, `[zookeeper]`, `[cassandra]`, `[java]`, `[java_bridge]`). The template also emits `[cloud_*]` groups and a `[webhardmon:children]` group spanning all roles. The local HDFS CTs land in `[hdfs]`, plus `[hdfs_namenode]`/`[hdfs_datanode]` (so `roles/hdfs` can branch), and the NameNode additionally in `[mapreduce]` — all generated from `var.hdfs_nodes`, no longer a hand-written static entry.
+`tofu apply` generates `ansible/inventory.ini` (from `ansible/inventory.tmpl`) with hosts grouped by role and by cloud. `ansible_host`: local CTs → LAN IP; GCP gateway nodes (node-01) → WireGuard IP (`10.0.0.20`/`10.0.0.30`); GCP private nodes (node-02/03) → GCP internal IP (reached via the gateway route). Because GCP nodes are shared, a node appears in **multiple** `[role]` groups at once (e.g. gcp-a node-02 ∈ `[kafka]`, `[zookeeper]`, `[cassandra]`, `[java]`, `[java_bridge]`). The template also emits `[cloud_*]` groups and a `[webhardmon:children]` group spanning all roles. The local HDFS CTs land in `[hdfs]`, plus `[hdfs_namenode]`/`[hdfs_datanode]` (so `roles/hdfs` can branch) — all generated from `var.hdfs_nodes`. The dedicated MapReduce CT lands in `[mapreduce]`, generated from `var.mapreduce_node` (no longer the NameNode, no longer a hand-written static entry).
 
 ### Ansible group_vars (config layer)
 
@@ -133,7 +135,7 @@ Private keys for GCP gateways are passed as sensitive variables → embedded in 
 
 ### Deploy order (Ansible)
 
-`ansible/site.yml` orchestrates: **security first** (`security.yml` hardens SSH 22→`var.ssh_port` 2222 — must run before everything else), then base services in dependency order (zookeeper → kafka → schema_registry; cassandra; mysql; nifi; grafana; matomo), then apps (stressscore, web). `hbase.yml` and `mapreduce.yml` (batch layer, need HDFS) are committed but commented out of `site.yml` — run them explicitly. Full guides: `DEPLOY.md` (end-to-end), `SERVICES-DEPLOY.md` (base services), `MAPREDUCE-HBASE.md` (batch).
+`ansible/site.yml` orchestrates: **security first** (`security.yml` hardens SSH 22→`var.ssh_port` 2222 — must run before everything else), then base services in dependency order (zookeeper → kafka → schema_registry; cassandra; mysql; harbor; nifi; hdfs; grafana; matomo), then apps (stressscore, web). `harbor` (local TLS registry) runs before `nifi`/`mapreduce` since their images live there. `hbase.yml` and `mapreduce.yml` (batch layer, need HDFS) are committed but commented out of `site.yml` — run them explicitly. Full guides: `DEPLOY.md` (end-to-end), `SERVICES-DEPLOY.md` (base services), `MAPREDUCE-HBASE.md` (batch).
 
 ### Security hardening (`ansible/security.yml`)
 
@@ -151,7 +153,9 @@ If you change `var.ssh_port`, also change `security_ssh_port` in `group_vars/all
 
 ### Container Images
 
-This repo provisions **registries** (Artifact Registry per GCP cloud + Harbor CT for local) but not the images. Dockerfiles + `build-and-push.sh` live in `docker/`; the Java apps (`java-stressscore`, `stressscore-bridge`, `web`) build from the `services/stressscore` and `services/web` git submodules (`git submodule update --init --recursive`). `build-and-push.sh` maps each service to its cloud's registry. VMs pull using their service account + the gcloud credential helper. Pin a real `IMAGE_TAG` (not `latest`) so spot-rebuilt nodes get the same image.
+This repo provisions **registries** (Artifact Registry per GCP cloud + Harbor for local) but not the images. Dockerfiles + `build-and-push.sh` live in `docker/`; the Java apps (`java-stressscore`, `stressscore-bridge`, `web`) build from the `services/stressscore` and `services/web` git submodules (`git submodule update --init --recursive`). `build-and-push.sh` maps each service to its cloud's registry. GCP VMs pull using their service account + the gcloud credential helper. Pin a real `IMAGE_TAG` (not `latest`) so spot-rebuilt nodes get the same image.
+
+> **Harbor (local registry) is served over TLS** under `harbor.<zone>` (`var.cloudflare_harbor_subdomain`). `tofu apply` creates a **DNS-only** Cloudflare A record → the Harbor CT's LAN IP (`cloudflare_record.harbor`, never proxied — the origin is private), and `ansible/harbor.yml` (`roles/harbor`) installs Harbor with a **Let's Encrypt cert issued via the DNS-01 challenge** (`certbot-dns-cloudflare`, reusing the Cloudflare token). The cert is publicly trusted, so the local Docker clients (NiFi, MapReduce) pull over HTTPS with **no `insecure-registries` and no CA distribution**. `container_registry_local`/`harbor_registry` (`group_vars/cloud_local.yml`) are the FQDN; set `harbor_hostname` there to `tofu output harbor_hostname`. Renewal is a `certbot` timer with a deploy-hook that re-runs Harbor's `prepare` + restart.
 
 ## State Backend
 

@@ -6,7 +6,7 @@
 # saliente al edge de Cloudflare y enruta ingest.<zona> -> localhost:nifi.
 # OpenTofu crea el tunel y exporta el token; Ansible solo instala el demonio.
 
-nifi_image: "{{ container_registry_local | default('harbor.local') }}/nifi:{{ image_tag }}"
+nifi_image: "{{ container_registry_local | default('harbor.local/' ~ project_name) }}/nifi:{{ image_tag }}"
 nifi_ui_port: 8080
 nifi_ingest_port: 8081          # ListenHTTP/HandleHttpRequest — destino del tunel
 

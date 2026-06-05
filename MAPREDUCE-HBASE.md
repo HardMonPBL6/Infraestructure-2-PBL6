@@ -90,11 +90,12 @@ Columnas dentro de `m`:
 
 ### 2.2 MapReduce — capa BATCH (nube local)
 
-#### Proyecto Maven: `docker/mapreduce-job/`
+#### Proyecto Maven + imagen runnable: `docker/mapreduce/`
 
 ```
-docker/mapreduce-job/
-├── Dockerfile                                   ← build multi-stage (Maven → JAR)
+docker/mapreduce/
+├── Dockerfile                                   ← multi-stage: Maven build → imagen runnable (bde2020/hadoop-base + JAR)
+├── run-job.sh                                   ← ENTRYPOINT: lee MR_* del entorno y lanza `hadoop jar`
 ├── pom.xml                                      ← fat JAR con shade plugin
 └── src/main/java/com/webhardmon/mr/
     ├── MetricsAggregationJob.java               ← driver (main + configuración job)
@@ -103,11 +104,14 @@ docker/mapreduce-job/
     └── MetricsReducer.java                      ← extiende TableReducer, escribe HBase
 ```
 
+La imagen se construye y sube a Harbor con `docker/build-and-push.sh mapreduce`
+(`[mapreduce]=local`), igual que el resto de imágenes de la nube local.
+
 **Dependencias bundled** (fat JAR):
 
 | Librería | Versión | Motivo |
 |----------|---------|--------|
-| Hadoop | 3.2.1 | `provided` — ya en el contenedor NameNode |
+| Hadoop | 3.2.1 | `provided` — lo aporta la imagen base `bde2020/hadoop-base` |
 | `parquet-avro` | 1.12.3 | Lectura de Parquet escrito por NiFi/Java |
 | `hbase-client` | 2.5.10 | API cliente HBase (= versión del clúster) |
 | `hbase-mapreduce` | 2.5.10 | `TableReducer`, `TableOutputFormat`, `TableMapReduceUtil` |
@@ -134,21 +138,25 @@ HDFS /data/telemetry/**/*.parquet
 
 #### Ejecución
 
-El job corre en **modo local** dentro del contenedor HDFS NameNode (no necesita YARN, que no está configurado en las imágenes bde2020). El contenedor ya tiene `hadoop jar` disponible.
+El job corre en **modo local** (LocalJobRunner, no necesita YARN — que no está
+configurado en las imágenes bde2020) dentro de un **contenedor dedicado y efímero**
+en el CT `mapreduce` (10.10.1.24), no dentro del NameNode. El `docker run --rm` usa
+`--network host` para alcanzar HDFS (10.10.1.21:9000) por la LAN y el quorum ZK de
+HBase (10.30.0.0/16) por la ruta WireGuard. La configuración llega por variables de
+entorno (`MR_*`); el ENTRYPOINT (`run-job.sh`) las traduce a `hadoop jar`:
 
 ```bash
-docker exec webhardmon-hdfs-namenode \
-  hadoop jar /opt/webhardmon-mr.jar \
-  com.webhardmon.mr.MetricsAggregationJob \
-  /data/telemetry          \   # input: Parquet en HDFS
-  webhardmon_hourly        \   # tabla HBase de destino
-  10.0.0.30,10.30.2.11,10.30.2.12  \  # ZK quorum de HBase (vía WireGuard)
-  2181                              # puerto ZK (opcional, default 2181)
+docker run --rm --name webhardmon-mapreduce --network host \
+  -e MR_INPUT="hdfs://10.10.1.21:9000/data/telemetry" \
+  -e MR_HBASE_TABLE="webhardmon_hourly" \
+  -e MR_ZK_QUORUM="10.0.0.30,10.30.2.11,10.30.2.12" \
+  -e MR_ZK_PORT="2181" \
+  harbor.<zona>/webhardmon/mapreduce:1.0
 ```
 
-El **script wrapper** `/usr/local/bin/run-webhardmon-aggregation.sh` (desplegado por Ansible) encapsula este comando, añade logging con timestamp y limpieza de logs viejos (> 7 días).
+El **script wrapper** `/usr/local/bin/run-webhardmon-aggregation.sh` (desplegado por Ansible) encapsula este `docker run`, añade logging con timestamp y limpieza de logs viejos (> 7 días).
 
-**Cron**: se ejecuta automáticamente **cada hora a los :10 minutos** (root en 10.10.1.21). El desfase de 10 minutos da margen para que el bridge Java haya flusheado los Parquet de la hora anterior.
+**Cron**: se ejecuta automáticamente **cada hora a los :10 minutos** (root en el CT mapreduce 10.10.1.24). El desfase de 10 minutos da margen para que el bridge Java haya flusheado los Parquet de la hora anterior.
 
 ---
 
@@ -168,11 +176,14 @@ El **script wrapper** `/usr/local/bin/run-webhardmon-aggregation.sh` (desplegado
 | `ansible/roles/hbase/handlers/main.yml` | Restart de los 3 contenedores |
 | `ansible/hbase.yml` | Playbook: `serial: 1` (Master primero) |
 | `ansible/group_vars/hbase.yml` | Extendido: rootdir, ZK quorum interno, tabla, REST port |
-| `ansible/roles/mapreduce/tasks/main.yml` | Build JAR → docker cp → cron |
-| `ansible/roles/mapreduce/templates/run-aggregation.sh.j2` | Script de ejecución con logging |
-| `ansible/mapreduce.yml` | Playbook, targets `[mapreduce]` |
-| `ansible/group_vars/mapreduce.yml` | Paths HDFS, ZK quorum MR, cron schedule |
-| `ansible/inventory.tmpl` | Añade `[mapreduce]` estático (hdfs-namenode 10.10.1.21) |
+| `docker/mapreduce/Dockerfile` | Imagen runnable: Maven build → `bde2020/hadoop-base` + JAR (antes: solo extraía el JAR) |
+| `docker/mapreduce/run-job.sh` | ENTRYPOINT del contenedor: lee `MR_*` y lanza `hadoop jar` |
+| `ansible/roles/mapreduce/tasks/main.yml` | Pull imagen Harbor → ruta gcp-b → script + cron |
+| `ansible/roles/mapreduce/templates/run-aggregation.sh.j2` | `docker run --rm` del job, con logging |
+| `ansible/mapreduce.yml` | Playbook, targets `[mapreduce]`, roles `docker` + `mapreduce` |
+| `ansible/group_vars/mapreduce.yml` | Imagen, URI HDFS, ZK quorum MR, ruta gcp-b, cron schedule |
+| `ansible/inventory.tmpl` | Emite `[mapreduce]` desde `groups_by_role` (el CT dedicado lleva el rol `mapreduce` vía `var.mapreduce_node`) |
+| `variables.tf` / `main.tf` / `outputs.tf` | `var.mapreduce_node` → CT dedicado `10.10.1.24` + grupo `[mapreduce]` |
 | `ansible/site.yml` | Comentarios actualizados con el orden de despliegue |
 
 ---
@@ -184,18 +195,18 @@ El **script wrapper** `/usr/local/bin/run-webhardmon-aggregation.sh` (desplegado
 El pipeline batch cruza tres nubes vía WireGuard. Verificar que:
 
 ```bash
-# Desde la nube local (HDFS NameNode 10.10.1.21) se alcanza GCP-B
+# Desde el CT MapReduce (10.10.1.24, donde corre el job) se alcanza GCP-B
 ping -c 2 10.0.0.30    # gateway gcp-b (node-01 WireGuard)
 ping -c 2 10.30.2.11   # node-02 gcp-b (vía routing WireGuard)
 ping -c 2 10.30.2.12   # node-03 gcp-b
 ```
 
-Si no hay respuesta, el LXC 10.10.1.21 necesita la ruta estática:
+`roles/mapreduce` añade la ruta a gcp-b automáticamente en el CT MapReduce. Si hace
+falta a mano (el contenedor usa `--network host`):
 
 ```bash
-# En el host Proxmox o dentro del LXC 10.10.1.21:
+# Dentro del CT 10.10.1.24:
 ip route add 10.30.0.0/16 via 10.10.1.1   # donde 10.10.1.1 es el gateway local
-ip route add 10.20.0.0/16 via 10.10.1.1
 ```
 
 Y desde GCP-B hacia HDFS local (para que HBase escriba en el rootdir):
@@ -211,17 +222,17 @@ ip route add 10.10.0.0/16 via 10.30.1.10  # via node-01 interno
 
 ```bash
 # Verificar que el clúster HDFS está sano (2 DataNodes)
-ssh root@10.10.1.21 \
+ssh -p 2222 ubuntu@10.10.1.21 \
   "docker exec webhardmon-hdfs-namenode hdfs dfsadmin -report"
 
 # Verificar que existe el directorio de telemetría
-ssh root@10.10.1.21 \
+ssh -p 2222 ubuntu@10.10.1.21 \
   "docker exec webhardmon-hdfs-namenode hdfs dfs -ls /data/telemetry"
 ```
 
 Si el directorio no existe, crearlo:
 ```bash
-ssh root@10.10.1.21 \
+ssh -p 2222 ubuntu@10.10.1.21 \
   "docker exec webhardmon-hdfs-namenode hdfs dfs -mkdir -p /data/telemetry"
 ```
 
@@ -238,13 +249,21 @@ docker push "${GCP_B_REGISTRY}/hbase:${TAG}"
 
 > La variable `container_registry` de `group_vars/cloud_gcp_b.yml` debe apuntar a este registro.
 
-### 3.4 Docker en el nodo de control
+### 3.4 Imagen MapReduce construida y en Harbor
 
-El rol `mapreduce` compila el fat JAR ejecutando `docker build` en el nodo de control. Verificar:
+El job ya no se compila en el nodo de control: es una imagen runnable que se
+construye y sube a Harbor con `build-and-push.sh`, y `roles/mapreduce` la descarga
+en el CT dedicado (`pull`). Construirla antes de desplegar:
 
 ```bash
-docker version
+# Desde el nodo de control (con Docker y `docker login` a Harbor hecho):
+export GCP_A_PROJECT=... GCP_B_PROJECT=... HARBOR_HOST=harbor.<zona> IMAGE_TAG=1.0
+./docker/build-and-push.sh mapreduce
 ```
+
+> Harbor sirve con TLS (cert público de Let's Encrypt), así que el CT MapReduce
+> hace `pull` por HTTPS sin `insecure-registries` ni CA extra. Solo necesita
+> resolver `harbor.<zona>` (registro DNS creado por OpenTofu) y alcanzar su IP LAN.
 
 ---
 
@@ -283,31 +302,27 @@ list_tables
 EOF
 ```
 
-### Paso 3 — Desplegar el job MapReduce en el NameNode
+### Paso 3 — Desplegar el job MapReduce en su CT dedicado
 
 ```bash
 ansible-playbook -i ansible/inventory.ini ansible/mapreduce.yml
 ```
 
-El playbook:
-1. Copia el código fuente `docker/mapreduce-job/` al nodo de control (`/tmp/`).
-2. Ejecuta `docker build` localmente → imagen `webhardmon-mr-builder:latest`.
-3. Extrae el fat JAR de la imagen con `docker create` + `docker cp`.
-4. Copia el JAR a `10.10.1.21` y lo inyecta en el contenedor NameNode:  
-   `/opt/webhardmon-mr.jar`
-5. Añade ruta IP hacia GCP-B si no existe.
-6. Instala el script `/usr/local/bin/run-webhardmon-aggregation.sh`.
-7. Crea el cron horario (`:10` de cada hora).
+El playbook (roles `docker` + `mapreduce` sobre `[mapreduce]` = 10.10.1.24):
+1. Instala Docker en el CT.
+2. Hace `pull` de la imagen `mapreduce` desde Harbor.
+3. Añade la ruta IP hacia GCP-B (`10.30.0.0/16` via gateway local) si no existe.
+4. Instala el script `/usr/local/bin/run-webhardmon-aggregation.sh` (`docker run --rm`).
+5. Crea el cron horario (`:10` de cada hora).
 
 **Verificar** el despliegue:
 
 ```bash
-# JAR en el contenedor
-ssh root@10.10.1.21 \
-  "docker exec webhardmon-hdfs-namenode ls -lh /opt/webhardmon-mr.jar"
+# Imagen presente en el CT
+ssh -p 2222 ubuntu@10.10.1.24 "docker images | grep mapreduce"
 
-# Cron activo
-ssh root@10.10.1.21 "crontab -l | grep webhardmon"
+# Cron activo (el cron horario se instala en el crontab de root)
+ssh -p 2222 ubuntu@10.10.1.24 "sudo crontab -l | grep webhardmon"
 ```
 
 ### Paso 4 — Ejecución manual del primer job
@@ -315,14 +330,14 @@ ssh root@10.10.1.21 "crontab -l | grep webhardmon"
 Ejecutar una vez para poblar HBase antes de que entre el cron:
 
 ```bash
-ssh root@10.10.1.21 /usr/local/bin/run-webhardmon-aggregation.sh
+ssh -p 2222 ubuntu@10.10.1.24 "sudo /usr/local/bin/run-webhardmon-aggregation.sh"
 ```
 
 Monitorizar el progreso (el job imprime counters al stdout):
 
 ```bash
 # Log del job actual
-ssh root@10.10.1.21 "tail -f /var/log/webhardmon-mr-$(date +%Y%m%d%H).log"
+ssh -p 2222 ubuntu@10.10.1.24 "sudo tail -f /var/log/webhardmon-mr-$(date +%Y%m%d%H).log"
 ```
 
 ### Paso 5 — Verificar datos en HBase
@@ -385,23 +400,22 @@ Grafana usa ese endpoint como datasource SimpleJson — sin cambios en la infrae
 ### Ver logs del job más reciente
 
 ```bash
-ssh root@10.10.1.21 "ls -lt /var/log/webhardmon-mr-*.log | head -3"
-ssh root@10.10.1.21 "cat /var/log/webhardmon-mr-<yyyyMMddHH>.log"
+ssh -p 2222 ubuntu@10.10.1.24 "sudo ls -lt /var/log/webhardmon-mr-*.log | head -3"
+ssh -p 2222 ubuntu@10.10.1.24 "sudo cat /var/log/webhardmon-mr-<yyyyMMddHH>.log"
 ```
 
 ### Ejecutar job sobre una partición concreta
 
-El job acepta cualquier subruta de HDFS:
+El job acepta cualquier subruta de HDFS vía `MR_INPUT` (URI completa):
 
 ```bash
 # Solo los Parquet de una hora específica (si el bridge escribe particionado)
-ssh root@10.10.1.21 \
-  "docker exec webhardmon-hdfs-namenode \
-    hadoop jar /opt/webhardmon-mr.jar \
-    com.webhardmon.mr.MetricsAggregationJob \
-    /data/telemetry/2024/01/15/14 \
-    webhardmon_hourly \
-    10.0.0.30,10.30.2.11,10.30.2.12"
+ssh -p 2222 ubuntu@10.10.1.24 \
+  "sudo docker run --rm --network host \
+    -e MR_INPUT='hdfs://10.10.1.21:9000/data/telemetry/2024/01/15/14' \
+    -e MR_HBASE_TABLE='webhardmon_hourly' \
+    -e MR_ZK_QUORUM='10.0.0.30,10.30.2.11,10.30.2.12' \
+    harbor.<zona>/webhardmon/mapreduce:1.0"
 ```
 
 ### Rebalancear regiones HBase (tras añadir RegionServer)
@@ -424,11 +438,9 @@ EOF
 
 ### Job MR termina con error de conexión HBase
 
-Verificar que el ZK quorum es alcanzable desde el NameNode:
+Verificar que el ZK quorum es alcanzable desde el CT MapReduce:
 ```bash
-ssh root@10.10.1.21 \
-  "docker exec webhardmon-hdfs-namenode \
-    bash -c 'echo ruok | nc 10.0.0.30 2181'"
+ssh -p 2222 ubuntu@10.10.1.24 "echo ruok | nc 10.0.0.30 2181"
 # Respuesta esperada: imok
 ```
 

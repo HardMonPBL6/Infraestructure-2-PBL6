@@ -25,7 +25,7 @@
   </properties>
 
   <dependencies>
-    <!-- ── Hadoop (provided: ya están en el contenedor NameNode) ──────── -->
+    <!-- ── Hadoop (provided: los aporta la imagen base bde2020/hadoop-base) ── -->
     <dependency>
       <groupId>org.apache.hadoop</groupId>
       <artifactId>hadoop-common</artifactId>

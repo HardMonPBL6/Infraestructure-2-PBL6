@@ -1,0 +1,15 @@
+---
+# group_vars/harbor.yml — registro Harbor con TLS (nube local).
+# Afecta al grupo [harbor] (CT harbor-01). harbor_hostname se hereda de
+# group_vars/cloud_local.yml (el CT también está en [cloud_local]).
+#
+# Versión de Harbor y datos viven en roles/harbor/defaults/main.yml; aquí solo
+# los overrides habituales.
+
+# Email de registro ACME (Let's Encrypt). Por defecto se deriva del dominio
+# (admin@<zona>); descomenta para fijarlo explícitamente.
+# harbor_certbot_email: "admin@example.com"
+
+# Poner a true para probar contra el entorno STAGING de Let's Encrypt y no
+# agotar el rate-limit de producción mientras se depura el despliegue.
+harbor_certbot_staging: false

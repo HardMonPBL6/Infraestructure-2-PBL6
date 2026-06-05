@@ -18,12 +18,13 @@
 #    zookeeper → kafka → schema_registry
 #    cassandra  (independiente de ZK/Kafka)
 #    mysql      (independiente)
-#    nifi       (requiere kafka + schema_registry + mysql)
+#    harbor     (registro TLS local; lo usan las imágenes de nifi y mapreduce)
+#    nifi       (requiere kafka + schema_registry + mysql + harbor)
 #    hdfs       (capa cold local; la usan stressscore-bridge, hbase y mapreduce)
 #    hbase      (requiere HDFS en nube local)
 #    grafana    (requiere cassandra + mysql + hbase)
 #    matomo     (independiente)
-#    mapreduce  (requiere hbase + HDFS)
+#    mapreduce  (requiere hbase + HDFS + harbor)
 #
 # Descomentar en orden para el despliegue completo:
 - import_playbook: zookeeper.yml
@@ -31,6 +32,7 @@
 - import_playbook: schema_registry.yml
 - import_playbook: cassandra.yml
 - import_playbook: mysql.yml
+- import_playbook: harbor.yml           # registro TLS local (antes que nifi/mapreduce)
 - import_playbook: nifi.yml
 - import_playbook: hdfs.yml            # capa COLD: clúster HDFS local (3 nodos Docker)
 # - import_playbook: hbase.yml          # capa SERVED: requiere HDFS local activo

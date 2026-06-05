@@ -1,0 +1,17 @@
+#!/bin/bash
+# {{ ansible_managed }}
+# Deploy-hook de certbot: tras renovar el cert de Harbor, re-prepara la config
+# (que copia el cert nuevo a los contenedores) y reinicia Harbor.
+# certbot lo ejecuta para CADA cert renovado, así que filtramos por dominio.
+set -euo pipefail
+
+# $RENEWED_DOMAINS lo exporta certbot con los dominios del lineage renovado.
+case " ${RENEWED_DOMAINS:-} " in
+  *" {{ harbor_hostname }} "*) ;;
+  *) exit 0 ;;   # no es el cert de Harbor; nada que hacer
+esac
+
+cd {{ harbor_install_dir }}
+./prepare
+docker compose down
+docker compose up -d

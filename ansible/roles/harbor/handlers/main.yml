@@ -1,0 +1,10 @@
+---
+# roles/harbor/handlers/main.yml
+
+# Al cambiar harbor.yml: re-preparar la config y recrear los contenedores.
+# install.sh ejecuta `prepare` + `docker compose up -d` de forma idempotente.
+- name: Reinstalar Harbor
+  ansible.builtin.command:
+    cmd: ./install.sh
+    chdir: "{{ harbor_install_dir }}"
+  changed_when: true

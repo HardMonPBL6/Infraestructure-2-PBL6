@@ -18,7 +18,7 @@ hdfs_blocksize: 134217728 # 128 MiB
 
 # Imágenes bde2020/hadoop. Por defecto se descargan de Docker Hub (los CTs tienen
 # salida a Internet por el gateway de gestión 10.10.1.1). Para servir desde Harbor,
-# pon hdfs_registry_prefix: "10.10.1.50:5000/" y sube/retag las imágenes allí.
+# pon hdfs_registry_prefix: "harbor.<zona>/" y sube/retag las imágenes allí.
 hdfs_registry_prefix: ""
 hdfs_namenode_image: "bde2020/hadoop-namenode"
 hdfs_datanode_image: "bde2020/hadoop-datanode"

@@ -1,38 +1,42 @@
 ---
 # group_vars/mapreduce.yml — configuración del job MapReduce batch.
-# Afecta al grupo [mapreduce] (HDFS NameNode, 10.10.1.21, nube local).
+# Afecta al grupo [mapreduce] = CT dedicado (10.10.1.24, nube local). El job ya
+# NO corre dentro del contenedor NameNode: roles/mapreduce despliega aquí un
+# contenedor efímero propio (imagen runnable bde2020/hadoop-base + fat JAR) que
+# el cron lanza con `docker run --rm` cada hora.
 
-# ── Rutas HDFS ───────────────────────────────────────────────────────────────
-# Directorio raíz donde el bridge Java escribe los Parquet enriquecidos.
+# ── Imagen del job (Harbor local, igual que NiFi) ────────────────────────────
+# Construida y subida por docker/build-and-push.sh ([mapreduce]=local).
+mr_image: "{{ container_registry_local | default('harbor.local/' ~ project_name) }}/mapreduce:{{ image_tag }}"
+mr_container_name: "{{ project_name | default('webhardmon') }}-mapreduce"
+
+# ── Entrada HDFS (URI completa) ──────────────────────────────────────────────
+# El contenedor no tiene config HDFS local, así que pasamos la URI completa del
+# NameNode (fijo en 10.10.1.21:9000). Directorio raíz de los Parquet del bridge.
+mr_hdfs_namenode_ip: "10.10.1.21"
+mr_hdfs_rpc_port: 9000
 mr_hdfs_input_path: "/data/telemetry"
+mr_hdfs_input: "hdfs://{{ mr_hdfs_namenode_ip }}:{{ mr_hdfs_rpc_port }}{{ mr_hdfs_input_path }}"
 
 # ── Conexión HBase (capa served, gcp-b) ──────────────────────────────────────
 # IPs accesibles desde la nube local via WireGuard:
 #   - node-01 (gateway gcp-b): WireGuard IP 10.0.0.30 → GCP-B interno 10.30.1.10
-#   - node-02: 10.30.2.11  (rutado por WireGuard vía gateway local 10.0.0.10)
+#   - node-02: 10.30.2.11  (rutado por WireGuard vía gateway local 10.10.1.1)
 #   - node-03: 10.30.2.12
 mr_hbase_zk_quorum: "10.0.0.30,10.30.2.11,10.30.2.12"
 mr_hbase_zk_port: "2181"
 mr_hbase_table: "{{ hbase_table_name | default('webhardmon_hourly') }}"
 
-# ── JAR y contenedor ─────────────────────────────────────────────────────────
-# Nombre del contenedor HDFS NameNode en el host 10.10.1.21.
-mr_namenode_container: "webhardmon-hdfs-namenode"
-
-# Ruta dentro del contenedor donde se copia el JAR.
-mr_jar_container_path: "/opt/webhardmon-mr.jar"
-
-# Ruta temporal en el HOST del NameNode para depositar el JAR antes del docker cp.
-mr_jar_host_tmp: "/tmp/webhardmon-mr.jar"
+# ── Ruta inter-nube hacia gcp-b ──────────────────────────────────────────────
+# El contenedor corre en --network host; el host necesita ruta a la red de gcp-b
+# via el gateway WireGuard local (10.10.1.1 en la LAN de gestión).
+mr_hbase_route_cidr: "10.30.0.0/16"
+mr_local_gateway: "10.10.1.1"
 
 # ── Cron schedule ─────────────────────────────────────────────────────────────
 # Ejecutar a los 10 minutos de cada hora (da margen para que el bridge flush Parquet).
 mr_cron_minute: "10"
 mr_cron_hour: "*"
 
-# ── Script de ejecución ───────────────────────────────────────────────────────
+# ── Script de ejecución (en el host del CT) ───────────────────────────────────
 mr_run_script: "/usr/local/bin/run-webhardmon-aggregation.sh"
-
-# ── Reducers ──────────────────────────────────────────────────────────────────
-# Debe coincidir con el número de regiones HBase pre-spliteadas.
-mr_num_reducers: "{{ hbase_presplit_regions | default(8) }}"

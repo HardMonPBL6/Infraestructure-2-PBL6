@@ -99,16 +99,30 @@ locals {
   }
 
   # HDFS: 1 CT por host PVE en la LAN de gestion (IP/nodo fijos, ver var.hdfs_nodes).
-  # El NameNode lleva tambien los roles hdfs_namenode + mapreduce; los DataNodes,
-  # hdfs_datanode. Estos grupos los consume Ansible (roles/hdfs ramifica por grupo).
+  # El NameNode lleva el rol hdfs_namenode; los DataNodes, hdfs_datanode. Estos
+  # grupos los consume Ansible (roles/hdfs ramifica por grupo).
   hdfs_cts = {
     for n in var.hdfs_nodes :
     n.name => merge(n, {
       hostname = "${var.project_name}-${n.name}"
-      roles    = n.kind == "namenode" ? ["hdfs", "hdfs_namenode", "mapreduce"] : ["hdfs", "hdfs_datanode"]
+      roles    = n.kind == "namenode" ? ["hdfs", "hdfs_namenode"] : ["hdfs", "hdfs_datanode"]
       cores    = 2
       memory   = 4096
       disk_gb  = 32
+    })
+  }
+
+  # MapReduce: CT dedicado a la capa batch en la LAN de gestion (ver
+  # var.mapreduce_node). Solo lleva el rol [mapreduce]; Ansible (roles/mapreduce)
+  # despliega ahi el contenedor efimero del job. Mismo formato que hdfs_cts para
+  # reutilizar el modulo proxmox-lxc y el bootstrap por SSH+pct.
+  mapreduce_cts = {
+    (var.mapreduce_node.name) = merge(var.mapreduce_node, {
+      hostname = "${var.project_name}-${var.mapreduce_node.name}"
+      roles    = ["mapreduce"]
+      cores    = 2
+      memory   = 4096
+      disk_gb  = 24
     })
   }
 }
@@ -241,6 +255,70 @@ resource "null_resource" "hdfs_bootstrap" {
   }
 }
 
+# ---- MapReduce: CT dedicado (host Docker) en la LAN de gestion --------------
+# Mismo patron que hdfs_ct (modulo proxmox-lxc en modo "publico" sobre vmbr0 /
+# 10.10.1.x). El job batch lo despliega Ansible (roles/mapreduce) como contenedor
+# efimero. Vive junto a HDFS para minimizar latencia de lectura de los Parquet.
+module "mapreduce_ct" {
+  source   = "./modules/proxmox-lxc"
+  for_each = local.mapreduce_cts
+
+  vmid             = each.value.vmid
+  hostname         = each.value.hostname
+  node_name        = each.value.proxmox_node
+  template_file_id = proxmox_download_file.ubuntu_lxc[each.value.proxmox_node].id
+  datastore_disk   = var.proxmox_datastore_disk
+  cores            = each.value.cores
+  memory           = each.value.memory
+  swap             = var.lxc_default_resources.swap
+  disk_gb          = each.value.disk_gb
+
+  public_bridge     = var.local_mgmt_bridge
+  private_bridge    = var.local_private_bridge
+  public_gateway    = var.local_mgmt_gateway
+  in_private_subnet = false
+  primary_ip_cidr   = "${each.value.ip}/24"
+
+  tags = [var.project_name, local.local_cloud_tag, "mapreduce"]
+}
+
+# Mismo bootstrap por SSH+pct que el resto de CTs (crea ubuntu, instala python3
+# para Ansible, endurece SSH). Docker lo instala despues Ansible (roles/docker).
+resource "null_resource" "mapreduce_bootstrap" {
+  for_each = local.mapreduce_cts
+
+  triggers = {
+    container = module.mapreduce_ct[each.key].id
+    script = sha1(templatefile("${path.module}/cloud-init/lxc-bootstrap.sh.tftpl", {
+      ssh_pubkey = var.local_ct_ssh_pubkey
+    }))
+  }
+
+  connection {
+    type        = "ssh"
+    host        = var.proxmox_node_ssh_hosts[each.value.proxmox_node]
+    user        = var.proxmox_ssh_user
+    private_key = var.proxmox_ssh_private_key
+  }
+
+  provisioner "file" {
+    content = templatefile("${path.module}/cloud-init/lxc-bootstrap.sh.tftpl", {
+      ssh_pubkey = var.local_ct_ssh_pubkey
+    })
+    destination = "/tmp/wh-bootstrap-${each.value.vmid}.sh"
+  }
+
+  provisioner "remote-exec" {
+    inline = [
+      "set -e",
+      "pct start ${each.value.vmid} >/dev/null 2>&1 || true",
+      "for i in $(seq 1 60); do pct status ${each.value.vmid} | grep -q running && break; sleep 1; done",
+      "pct exec ${each.value.vmid} -- bash -se < /tmp/wh-bootstrap-${each.value.vmid}.sh",
+      "rm -f /tmp/wh-bootstrap-${each.value.vmid}.sh",
+    ]
+  }
+}
+
 # ---- Cloudflare Tunnel: ingesta externa hacia NiFi --------------------------
 # El collector (en PCs de usuario, fuera de la malla WireGuard y detras de NAT) entra por
 # aqui. cloudflared corre en el CT de NiFi con el token que exporta el modulo.
@@ -255,6 +333,24 @@ module "cloudflare_tunnel" {
   zone_name        = var.cloudflare_zone_name
   subdomain        = var.cloudflare_ingest_subdomain
   nifi_ingest_port = var.nifi_ingest_port
+}
+
+# ---- Harbor TLS: registro DNS para el registro de contenedores local --------
+# Registro A *DNS-only* (grey cloud) harbor.<zona> -> IP LAN del CT Harbor. No
+# se proxea (Cloudflare no alcanza un origen privado) ni se expone a Internet:
+# solo resuelve el nombre para clientes de la LAN/malla. El cert TLS lo emite
+# Let's Encrypt por DNS-01 (Ansible roles/harbor), de modo que Docker confia en
+# Harbor sin CA extra ni insecure-registries. La IP se deriva del CT real para
+# que no diverja de la topologia (harbor-01 en la subred publica local).
+resource "cloudflare_record" "harbor" {
+  count = var.cloudflare_enabled && contains(keys(local.local_cts), "harbor-01") ? 1 : 0
+
+  zone_id = var.cloudflare_zone_id
+  name    = var.cloudflare_harbor_subdomain
+  content = local.local_cts["harbor-01"].ip
+  type    = "A"
+  proxied = false
+  comment = "WebHardMon Harbor registry (DNS-only, LAN IP; TLS via LE DNS-01)"
 }
 
 # =============================================================================

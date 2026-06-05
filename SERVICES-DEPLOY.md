@@ -54,7 +54,7 @@ Antes de desplegar cualquier servicio, sus imágenes deben estar en el registro 
 ```bash
 export GCP_A_PROJECT="webhardmon-a-XXXXX"   # tu project_id real de GCP-A
 export GCP_B_PROJECT="webhardmon-b-XXXXX"   # tu project_id real de GCP-B
-export HARBOR_HOST="10.10.1.50:5000"        # Harbor en la nube local
+export HARBOR_HOST="harbor.<zona>"          # Harbor TLS en la nube local (= tofu output harbor_hostname)
 export IMAGE_TAG="1.0"
 ```
 
@@ -64,8 +64,8 @@ export IMAGE_TAG="1.0"
 # GCP Artifact Registry
 gcloud auth configure-docker europe-southwest1-docker.pkg.dev,europe-west1-docker.pkg.dev
 
-# Harbor (nube local) — hacer login una vez
-docker login 10.10.1.50:5000
+# Harbor (nube local, TLS Let's Encrypt) — hacer login una vez. Sin insecure-registries.
+docker login "$HARBOR_HOST"
 ```
 
 ### Construir todas las imágenes de una vez

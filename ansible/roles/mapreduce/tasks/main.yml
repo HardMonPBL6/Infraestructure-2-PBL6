@@ -1,79 +1,30 @@
 ---
 # roles/mapreduce/tasks/main.yml
 #
-# Despliega el fat JAR del job MapReduce en el HDFS NameNode (10.10.1.21)
-# y configura un cron que lo ejecuta cada hora dentro del contenedor Docker.
+# Despliega el job MapReduce batch en su CT dedicado (10.10.1.24, nube local).
+# El job corre como un contenedor Docker EFÍMERO (docker run --rm) que un cron
+# horario lanza. La imagen runnable (bde2020/hadoop-base + fat JAR) se construye
+# y sube a Harbor con docker/build-and-push.sh ([mapreduce]=local).
 #
-# Prerequisitos en el nodo de control (donde corre Ansible):
-#   - Docker instalado (para `docker build` + `docker create` + `docker cp`).
-#   - El código fuente del job está en docker/mapreduce-job/ del repo.
-#
-# Prerequisitos en el HDFS NameNode:
-#   - Docker instalado y contenedor {{ mr_namenode_container }} corriendo.
-#   - Rutas WireGuard a gcp-b configuradas (10.30.0.0/16 via gateway local).
+# Prerequisitos:
+#   - roles/docker ejecutado antes en este host (lo encadena ansible/mapreduce.yml).
+#   - HDFS corriendo en 10.10.1.21:9000 con datos en {{ mr_hdfs_input_path }}.
+#   - HBase desplegado en gcp-b (tabla {{ mr_hbase_table }}).
+#   - WireGuard activo: nube local → gcp-b (10.30.0.0/16 alcanzable).
 
-- name: Copiar código fuente del job al nodo de control (directorio temporal)
-  copy:
-    src: "{{ playbook_dir }}/../docker/mapreduce-job/"
-    dest: "/tmp/webhardmon-mr-src/"
-    mode: preserve
-  delegate_to: localhost
-  run_once: true
-
-- name: Construir imagen Maven con el fat JAR (en el nodo de control)
+- name: Descargar la imagen del job MapReduce
   community.docker.docker_image:
-    name: webhardmon-mr-builder
-    tag: "latest"
-    build:
-      path: "/tmp/webhardmon-mr-src"
-      pull: true
-    source: build
+    name: "{{ mr_image }}"
+    source: pull
     force_source: true
-  delegate_to: localhost
-  run_once: true
-
-- name: Extraer el JAR de la imagen al nodo de control
-  block:
-    - name: Crear contenedor temporal para extracción
-      community.docker.docker_container:
-        name: webhardmon-mr-extract
-        image: "webhardmon-mr-builder:latest"
-        state: present
-        command: "true"
-      delegate_to: localhost
-      register: mr_extract_container
-
-    - name: Copiar JAR del contenedor al nodo de control
-      command: >
-        docker cp webhardmon-mr-extract:/app/webhardmon-mr.jar
-        /tmp/webhardmon-mr.jar
-      delegate_to: localhost
-
-    - name: Eliminar contenedor temporal
-      community.docker.docker_container:
-        name: webhardmon-mr-extract
-        state: absent
-      delegate_to: localhost
-  run_once: true
-
-- name: Copiar JAR al HDFS NameNode (host)
-  copy:
-    src: "/tmp/webhardmon-mr.jar"
-    dest: "{{ mr_jar_host_tmp }}"
-    mode: "0644"
-
-- name: Inyectar JAR en el contenedor HDFS NameNode
-  command: >
-    docker cp {{ mr_jar_host_tmp }} {{ mr_namenode_container }}:{{ mr_jar_container_path }}
-  changed_when: true
 
 - name: Agregar ruta hacia gcp-b vía gateway WireGuard local
-  command: ip route replace 10.30.0.0/16 via 10.10.1.1
+  ansible.builtin.command: "ip route replace {{ mr_hbase_route_cidr }} via {{ mr_local_gateway }}"
   changed_when: false
   failed_when: false
 
 - name: Instalar script de ejecución del job
-  template:
+  ansible.builtin.template:
     src: run-aggregation.sh.j2
     dest: "{{ mr_run_script }}"
     mode: "0755"
@@ -81,7 +32,7 @@
     group: root
 
 - name: Configurar cron horario para el job MapReduce
-  cron:
+  ansible.builtin.cron:
     name: "webhardmon-mapreduce-aggregation"
     minute: "{{ mr_cron_minute }}"
     hour: "{{ mr_cron_hour }}"
@@ -89,19 +40,15 @@
     user: root
     state: present
 
-- name: Verificar que el contenedor NameNode está corriendo
-  community.docker.docker_container_info:
-    name: "{{ mr_namenode_container }}"
-  register: nn_info
-
-- name: Confirmar JAR dentro del contenedor
-  command: "docker exec {{ mr_namenode_container }} ls -lh {{ mr_jar_container_path }}"
-  register: jar_check
-  changed_when: false
+- name: Confirmar que la imagen está disponible en el host
+  community.docker.docker_image_info:
+    name: "{{ mr_image }}"
+  register: mr_img_info
 
 - name: Mostrar estado del despliegue
-  debug:
+  ansible.builtin.debug:
     msg:
-      - "Contenedor NameNode: {{ nn_info.container.State.Status }}"
-      - "JAR en contenedor: {{ jar_check.stdout }}"
+      - "Imagen MapReduce: {{ mr_image }} ({{ 'presente' if mr_img_info.images | length > 0 else 'NO encontrada' }})"
+      - "Entrada HDFS: {{ mr_hdfs_input }}"
+      - "HBase: tabla {{ mr_hbase_table }} — ZK {{ mr_hbase_zk_quorum }}:{{ mr_hbase_zk_port }}"
       - "Cron: cada hora a :{{ mr_cron_minute }} → {{ mr_run_script }}"

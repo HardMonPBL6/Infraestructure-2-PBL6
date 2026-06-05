@@ -2,29 +2,26 @@
 # ============================================================================
 # Despliega el job MapReduce de agregación de métricas WebHardMon.
 #
-# Target: grupo [mapreduce] = HDFS NameNode (nube local, 10.10.1.21).
-# El nodo se añade manualmente en el inventario (ver nota al pie).
+# Target: grupo [mapreduce] = CT dedicado (nube local, 10.10.1.24).
+# El grupo [mapreduce] lo genera OpenTofu automáticamente en inventory.ini a
+# partir de var.mapreduce_node (ver outputs.tf), así que se alcanza como
+# ubuntu@2222 igual que el resto de hosts. El job ya NO corre dentro del
+# contenedor NameNode: aquí se despliega un contenedor Docker propio y efímero.
 #
 # Prerequisitos:
 #   - HBase desplegado en gcp-b (ansible-playbook hbase.yml).
-#   - HDFS corriendo en nube local (tabla /data/telemetry poblada).
-#   - Docker instalado en el nodo de control (para compilar el JAR).
+#   - HDFS corriendo en nube local (10.10.1.21:9000, /data/telemetry poblado).
+#   - Imagen mapreduce:{{ image_tag }} construida y subida a Harbor
+#     (docker/build-and-push.sh mapreduce).
 #   - WireGuard activo: nodo local → gcp-b (10.30.0.0/16 alcanzable).
 #
 # ansible-playbook -i ansible/inventory.ini ansible/mapreduce.yml
-#
-# ── Añadir el NameNode al inventario ────────────────────────────────────────
-# En ansible/inventory.ini (o en un fichero de inventario extra), agregar:
-#
-#   [mapreduce]
-#   hdfs-namenode ansible_host=10.10.1.21 ansible_user=root \
-#     ansible_ssh_private_key_file=~/.ssh/id_rsa
-#
 # ============================================================================
 
-- name: Desplegar job MapReduce en el HDFS NameNode
+- name: Desplegar el job MapReduce en su CT dedicado
   hosts: mapreduce
   gather_facts: false
   become: true
   roles:
+    - docker
     - mapreduce

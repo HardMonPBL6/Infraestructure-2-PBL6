@@ -1,0 +1,2 @@
+# Build output (el fat JAR se construye dentro de la imagen Docker multi-stage).
+target/
