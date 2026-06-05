@@ -94,7 +94,7 @@ if (Test-Path $privPath) {
   $priv = (& $wg genkey).Trim()
   Set-Content -Path $privPath -Value $priv -NoNewline -Encoding ascii
 }
-$pub = ($priv | & $wg pubkey).Trim()
+$pub = (cmd /c "`"$wg`" pubkey < `"$privPath`"").Trim()
 Set-Content -Path $pubPath -Value $pub -NoNewline -Encoding ascii
 Write-Host "Clave publica del gateway local: $pub"
 
@@ -136,10 +136,16 @@ try {
 Get-NetIPInterface -AddressFamily IPv4 | Set-NetIPInterface -Forwarding Enabled -ErrorAction SilentlyContinue
 
 $fwRule = "WebHardMon-WireGuard-mesh"
-if (-not (Get-NetFirewallRule -DisplayName $fwRule -ErrorAction SilentlyContinue)) {
+# 10.10.0.0/16 = red local Proxmox (necesaria para el tráfico de retorno HDFS→GCP).
+$fwAddrs = "10.0.0.0/24","10.10.0.0/16","10.20.0.0/16","10.30.0.0/16"
+$existing = Get-NetFirewallRule -DisplayName $fwRule -ErrorAction SilentlyContinue
+if (-not $existing) {
   New-NetFirewallRule -DisplayName $fwRule -Direction Inbound -Action Allow `
-    -RemoteAddress 10.0.0.0/24,10.20.0.0/16,10.30.0.0/16 -Profile Any | Out-Null
+    -RemoteAddress $fwAddrs -Profile Any | Out-Null
   Write-Host "Regla de firewall '$fwRule' creada."
+} else {
+  Set-NetFirewallRule -DisplayName $fwRule -RemoteAddress $fwAddrs
+  Write-Host "Regla de firewall '$fwRule' actualizada con 10.10.0.0/16."
 }
 
 # --- 5. (Re)instalar el tunel como servicio ----------------------------------

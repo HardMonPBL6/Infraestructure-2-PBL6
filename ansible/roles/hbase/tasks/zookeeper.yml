@@ -1,0 +1,12 @@
+---
+# ZooKeeper embebido en el contenedor hbase-master (via hbase-daemon.sh).
+# El entrypoint.sh del rol master arranca ZK antes de HMaster.
+# Este fichero solo elimina el antiguo contenedor standalone si quedara huérfano.
+
+- name: Eliminar contenedor hbase-zookeeper legacy (si existe)
+  community.docker.docker_container:
+    name: hbase-zookeeper
+    state: absent
+    force_kill: true
+  ignore_errors: true
+  when: hbase_is_master | bool

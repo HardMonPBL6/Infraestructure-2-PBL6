@@ -1,7 +1,7 @@
 # HBase — PATRÓN: servicio sin imagen oficial mantenida → construir del tarball.
 FROM eclipse-temurin:11-jre
 
-ARG HBASE_VERSION=2.5.10
+ARG HBASE_VERSION=2.5.14
 ENV HBASE_HOME=/opt/hbase
 ENV PATH="${HBASE_HOME}/bin:${PATH}"
 

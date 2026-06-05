@@ -8,8 +8,12 @@ hbase_regionserver_heap_mb: 3072
 hbase_master_heap_mb: 1024
 
 # El primer nodo del grupo es el HMaster; el resto solo RegionServer.
-hbase_master_host: "{{ hbase_regionservers[0] }}"
-hbase_is_master: "{{ inventory_hostname == hbase_regionservers[0] }}"
+# hbase_master_host = VPC IP de node-01 (alcanzable por todos los RS en gcp-b).
+# hbase_is_master compara inventory_hostname (no ansible_host) para evitar
+# el mismatch WireGuard-IP vs hostname del patrón cassandra/zookeeper.
+hbase_master_node: "{{ (groups['hbase'] | default([]))[0] | default('') }}"
+hbase_master_host: "{{ hostvars[hbase_master_node]['ansible_default_ipv4']['address'] | default('10.30.1.10') }}"
+hbase_is_master: "{{ inventory_hostname == hbase_master_node }}"
 
 # HBase necesita un quorum ZK. gcp-b no tiene ZK dedicado → quorum embebido en
 # los 3 nodos hbase (o apuntar al ensemble de gcp-a vía WireGuard si se prefiere).
@@ -22,15 +26,17 @@ hbase_presplit_regions: 8
 # Variables usadas por roles/hbase y por el job MapReduce.
 # ---------------------------------------------------------------------------
 
-# Quorum ZK con IPs INTERNAS de gcp-b (las que los contenedores se ven entre
-# sí). Diferente de hbase_zk_quorum que usa los ansible_host (WireGuard para
-# node-01). El job MR en la nube local alcanza estas IPs vía WireGuard routing.
-hbase_zk_internal_quorum: "10.30.1.10,10.30.2.11,10.30.2.12"
+# ZooKeeper embebido en el contenedor hbase-master (docker/hbase/entrypoint.sh).
+# El entrypoint arranca hbase-daemon.sh start zookeeper antes de hbase master start.
+# Single-node ZK es suficiente para un clúster HBase sin HA-Master.
+hbase_zk_internal_quorum: "10.30.1.10"
 hbase_zk_client_port: 2181
 
-# HDFS raíz de HBase — la misma instancia que el batch layer (nube local).
-# GCP-B accede a ella vía WireGuard (10.0.0.10 = gateway local → 10.10.1.21).
-hbase_hdfs_rootdir: "hdfs://10.10.1.21:9000/hbase"
+# Directorio raíz de HBase: filesystem local del contenedor (volumen Docker hbase-data).
+# Nota: se usa file:// porque el Windows gateway no enruta correctamente TCP forwarded
+# desde GCP-B hacia 10.10.1.21 (SYN-ACK no llega de vuelta). El job MapReduce
+# escribe a HBase vía API client (ZK→Master→RS) sin necesitar HDFS desde GCP-B.
+hbase_hdfs_rootdir: "file:///var/hbase-data"
 
 # Tabla de agregados batch creada automáticamente por el rol.
 # Row key: {licencia}|{ramGb}|{stoGb}|{yyyyMMddHH}

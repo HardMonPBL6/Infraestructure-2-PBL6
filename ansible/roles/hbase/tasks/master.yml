@@ -15,4 +15,5 @@
     volumes:
       - "{{ hbase_conf_dir }}/hbase-site.xml:/opt/hbase/conf/hbase-site.xml:ro"
       - "hbase-zk-data:{{ hbase_zk_data_dir }}"
+      - "hbase-data:/var/hbase-data"
     state: started

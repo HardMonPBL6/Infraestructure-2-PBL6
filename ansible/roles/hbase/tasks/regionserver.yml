@@ -1,8 +1,8 @@
 ---
-# Levanta el contenedor RegionServer en TODOS los nodos del grupo [hbase]
-# (incluyendo node-01 que también es Master — HBase soporta co-localización).
+# RegionServer solo en el nodo Master (file:// rootdir requiere filesystem compartido).
+# Con hbase.rootdir=file:// todos los procesos deben acceder al mismo volumen Docker.
 
-- name: Levantar HBase RegionServer
+- name: Levantar HBase RegionServer (solo en nodo master, comparte volumen hbase-data)
   community.docker.docker_container:
     name: "{{ hbase_rs_container }}"
     image: "{{ hbase_image }}"
@@ -15,4 +15,14 @@
     volumes:
       - "{{ hbase_conf_dir }}/hbase-site.xml:/opt/hbase/conf/hbase-site.xml:ro"
       - "hbase-zk-data:{{ hbase_zk_data_dir }}"
+      - "hbase-data:/var/hbase-data"
     state: started
+  when: hbase_is_master | bool
+
+- name: Parar HBase RegionServer en nodos no-master (file:// requiere master local)
+  community.docker.docker_container:
+    name: "{{ hbase_rs_container }}"
+    state: absent
+    force_kill: true
+  when: not (hbase_is_master | bool)
+  ignore_errors: true

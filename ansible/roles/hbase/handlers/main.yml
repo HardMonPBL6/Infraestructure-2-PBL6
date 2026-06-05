@@ -8,4 +8,5 @@
     - "{{ hbase_master_container }}"
     - "{{ hbase_rs_container }}"
     - "{{ hbase_rest_container }}"
+  when: hbase_is_master | bool
   ignore_errors: true

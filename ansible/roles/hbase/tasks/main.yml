@@ -3,6 +3,9 @@
 # Genera hbase-site.xml en el host y arranca el rol correcto (Master o RS).
 # En el primer nodo del grupo [hbase] también levanta el servidor REST.
 
+- name: Eliminar ZooKeeper legacy si quedó huérfano
+  import_tasks: zookeeper.yml
+
 - name: Crear directorio de configuración HBase
   file:
     path: "{{ hbase_conf_dir }}"
@@ -26,6 +29,18 @@
 
 - name: Desplegar servidor REST (solo en master)
   import_tasks: rest.yml
+  when: hbase_is_master | bool
+
+# Aplica cualquier handler pendiente (p.ej. restart si hbase-site.xml cambió)
+# ANTES de esperar puertos — si el config cambió el master debe reiniciarse.
+- name: Aplicar handlers pendientes (restart si hbase-site.xml cambió)
+  ansible.builtin.meta: flush_handlers
+
+- name: Esperar a que ZooKeeper embebido esté listo (puerto 2181)
+  wait_for:
+    host: "{{ ansible_default_ipv4.address }}"
+    port: 2181
+    timeout: 90
   when: hbase_is_master | bool
 
 - name: Esperar a que HMaster esté listo (puerto 16000)

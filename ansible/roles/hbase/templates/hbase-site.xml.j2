@@ -2,8 +2,8 @@
 <?xml-stylesheet type="text/xsl" href="configuration.xsl"?>
 <!--
   hbase-site.xml — generado por Ansible (roles/hbase).
-  Distribuido modo: quorum ZK embebido en los 3 nodos gcp-b.
-  HFiles almacenados en HDFS local (10.10.1.21) vía WireGuard.
+  Modo distribuido single-RS: ZK embebido en master, HFiles en filesystem local
+  (file:///var/hbase-data en volumen Docker hbase-data en node-01).
 -->
 <configuration>
 
@@ -83,6 +83,30 @@
   <property>
     <name>hbase.hregion.compression</name>
     <value>NONE</value>
+  </property>
+
+  <!-- file:// en overlay FS de Docker no soporta hflush.
+       Deshabilitamos el check; para una capa batch de métricas la durabilidad
+       del WAL no es crítica (datos recuperables desde HDFS/MapReduce). -->
+  <property>
+    <name>hbase.wal.provider</name>
+    <value>filesystem</value>
+  </property>
+
+  <property>
+    <name>hbase.unsafe.stream.capability.enforce</name>
+    <value>false</value>
+  </property>
+
+  <!-- REST server: API en 8085, info UI en 8086 (evita colisión por defecto) -->
+  <property>
+    <name>hbase.rest.port</name>
+    <value>{{ hbase_rest_port }}</value>
+  </property>
+
+  <property>
+    <name>hbase.rest.info.port</name>
+    <value>8086</value>
   </property>
 
 </configuration>
