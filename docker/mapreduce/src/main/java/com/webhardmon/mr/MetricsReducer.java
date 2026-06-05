@@ -9,28 +9,28 @@ import org.apache.hadoop.io.Text;
 import java.io.IOException;
 
 /**
- * Reducer del job de agregación.
+ * Reducer del job de agregacion.
  *
- * Entrada  : (Text[licencia|ramGb|stoGb|yyyyMMddHH], Iterable<MetricsWritable>)
+ * Entrada  : (Text[empresaId|ramGb|stoGb|yyyyMMddHH], Iterable<MetricsWritable>)
  * Salida   : Put a la tabla HBase webhardmon_hourly.
  *
  * El row key ya segmenta por tier de hardware (ramGb, stoGb), por lo que todos
  * los registros de un mismo grupo tienen cantidad_ram y cantidad_almacenamiento
- * idénticos — los percentiles de uso% son comparables entre sí.
+ * identicos: los percentiles de uso% son comparables entre si.
  *
  * Columnas generadas en la familia "m":
  *
- *   cpu_avg  cpu_min  cpu_max          (uso_procesador %)
- *   ram_avg  ram_min  ram_max          (uso_ram %)
- *   ram_gb                             (cantidad_ram GB — constante en el grupo, copia del key)
- *   sto_avg  sto_min  sto_max          (uso_almacenamiento %)
- *   sto_gb                             (cantidad_almacenamiento GB — constante, copia del key)
- *   bat_avg  bat_min  bat_max          (bateria %)
- *   tmp_avg  tmp_min  tmp_max          (temperatura ºC)
- *   str_avg  str_min  str_max          (stressScore 0-100)
- *   count                              (nº de muestras en la hora)
+ *   cpu_avg  cpu_min  cpu_max          (cpu_percent %)
+ *   ram_avg  ram_min  ram_max          (ram_percent %)
+ *   ram_gb                             (ram GB, parseado desde texto)
+ *   sto_avg  sto_min  sto_max          (disco_percent %)
+ *   sto_gb                             (almacenamiento GB, parseado desde texto)
+ *   bat_avg  bat_min  bat_max          (bateria_percent %)
+ *   tmp_avg  tmp_min  tmp_max          (temperatura C)
+ *   str_avg  str_min  str_max          (stress_score 0-100)
+ *   count                              (numero de muestras en la hora)
  *
- * Todos los valores numéricos se almacenan como double en 8 bytes (Bytes.toBytes).
+ * Todos los valores numericos se almacenan como double en 8 bytes (Bytes.toBytes).
  * count se guarda como long (8 bytes). El row key es el Text del Mapper, UTF-8.
  */
 public class MetricsReducer extends TableReducer<Text, MetricsWritable, ImmutableBytesWritable> {

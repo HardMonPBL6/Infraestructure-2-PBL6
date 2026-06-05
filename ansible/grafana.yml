@@ -24,6 +24,7 @@
 - name: Desplegar Grafana en gcp-b node-01
   hosts: grafana
   gather_facts: false
+  become: true
   roles:
     - docker
     - grafana

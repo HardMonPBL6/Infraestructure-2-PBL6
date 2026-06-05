@@ -28,7 +28,6 @@
     image: "{{ matomo_mysql_image }}"
     pull: true
     restart_policy: unless-stopped
-    network_mode: host
     ports:
       - "3308:3306"
     env:

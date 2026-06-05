@@ -9,7 +9,7 @@ web_port: 8080
 
 # MySQL (gcp-b).
 web_db_host: "{{ hostvars[groups['mysql'][0]].ansible_host }}"
-web_db_port: 3306
+web_db_port: 3307
 web_db_name: telemetriadb
 web_db_user: root
 web_db_pass: root

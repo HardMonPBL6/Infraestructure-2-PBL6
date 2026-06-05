@@ -23,6 +23,7 @@
 - name: Desplegar ZooKeeper en gcp-a
   hosts: zookeeper
   gather_facts: false    # ya recogidos en el play anterior
+  become: true
   serial: 1
   roles:
     - docker

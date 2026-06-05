@@ -17,6 +17,7 @@
 - name: Desplegar Schema Registry en gcp-a node-01
   hosts: schema_registry
   gather_facts: false
+  become: true
   roles:
     - docker
     - schema_registry

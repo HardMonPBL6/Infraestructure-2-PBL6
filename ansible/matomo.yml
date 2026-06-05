@@ -25,6 +25,7 @@
 - name: Desplegar Matomo + matomo-mysql en gcp-b node-01
   hosts: matomo
   gather_facts: false
+  become: true
   roles:
     - docker
     - matomo

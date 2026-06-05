@@ -19,7 +19,7 @@
 - name: Desplegar HBase en gcp-b
   hosts: hbase
   gather_facts: true       # necesario para ansible_default_ipv4.address
-  become: false
+  become: true
   serial: 1                # node-01 primero (Master + ZK líder), luego RS
   roles:
     - docker

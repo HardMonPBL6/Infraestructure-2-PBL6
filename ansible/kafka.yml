@@ -17,6 +17,7 @@
 - name: Desplegar brokers Kafka en gcp-a
   hosts: kafka
   gather_facts: false
+  become: true
   roles:
     - docker
     - kafka

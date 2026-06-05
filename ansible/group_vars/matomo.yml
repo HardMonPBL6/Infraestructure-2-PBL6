@@ -4,7 +4,7 @@
 # Necesita su propia instancia MySQL (matomo-mysql), que corre en el mismo nodo.
 
 matomo_image: "matomo:5.1"
-matomo_port: 8080
+matomo_port: 8282
 
 # MySQL dedicado a Matomo (no comparte instancia con telemetriadb).
 matomo_mysql_image: "mysql:8.0"

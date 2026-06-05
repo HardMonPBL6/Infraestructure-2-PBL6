@@ -21,6 +21,7 @@
 - name: Desplegar anillo Cassandra en gcp-a
   hosts: cassandra
   gather_facts: false
+  become: true
   serial: 1              # seed primero, luego followers
   roles:
     - docker

@@ -8,25 +8,28 @@ import java.io.IOException;
 import java.text.SimpleDateFormat;
 import java.util.Date;
 import java.util.TimeZone;
+import java.util.regex.Matcher;
+import java.util.regex.Pattern;
 
 /**
- * Mapper del job de agregación.
+ * Mapper del job de agregacion.
  *
- * Entrada  : (Void, GenericRecord) — Parquet escrito por el bridge Java en HDFS.
- * Salida   : (Text[licencia|ramGb|stoGb|yyyyMMddHH], MetricsWritable)
+ * Entrada  : (Void, GenericRecord) - Parquet escrito por el bridge Java en HDFS.
+ * Salida   : (Text[empresaId|ramGb|stoGb|yyyyMMddHH], MetricsWritable)
  *
- * El row key combina la licencia, la capacidad de hardware (RAM y almacenamiento
+ * Lee el esquema real que escribe HdfsParquetWriter:
+ *   empresa_id, nombre, ts, cpu_percent, ram_percent, disco_percent,
+ *   temperatura, bateria_percent, ram, almacenamiento, procesador, stress_score.
+ *
+ * El row key combina la empresa, la capacidad de hardware (RAM y almacenamiento
  * en GB enteros) y la ventana horaria. Segmentar por capacidad evita mezclar
- * percentiles de portátiles de 8 GB con los de 16 GB en los mismos agregados.
- * Pipe (|, 0x7C) como separador porque está fuera del rango alfanumérico.
- *
- * Extracción del timestamp:
- *   1. Campo "timestamp" en el registro (epoch ms como long o como string ISO).
- *   2. Si no existe o es nulo → usa el tiempo de proceso (hora actual).
+ * percentiles de equipos de 8 GB con los de 16 GB en los mismos agregados.
+ * Pipe (|, 0x7C) como separador porque esta fuera del rango alfanumerico.
  */
 public class MetricsMapper extends Mapper<Void, GenericRecord, Text, MetricsWritable> {
 
     private static final SimpleDateFormat HOUR_FMT;
+    private static final Pattern NUMBER_PATTERN = Pattern.compile("([0-9]+(?:\\.[0-9]+)?)");
 
     static {
         HOUR_FMT = new SimpleDateFormat("yyyyMMddHH");
@@ -39,47 +42,46 @@ public class MetricsMapper extends Mapper<Void, GenericRecord, Text, MetricsWrit
     protected void map(Void key, GenericRecord record, Context context)
             throws IOException, InterruptedException {
 
-        String licencia = getString(record, "licencia");
-        if (licencia == null || licencia.isEmpty()) {
-            context.getCounter("webhardmon", "registros_sin_licencia").increment(1);
+        long empresaId = Math.round(getDouble(record, "empresa_id"));
+        if (empresaId <= 0) {
+            context.getCounter("webhardmon", "registros_sin_empresa_id").increment(1);
             return;
         }
 
-        // Capacidad de hardware como enteros GB — agrupa portátiles del mismo tier.
-        long ramGb = Math.round(getDouble(record, "cantidad_ram"));
-        long stoGb = Math.round(getDouble(record, "cantidad_almacenamiento"));
+        double ramGbValue = parseGb(record, "ram");
+        double stoGbValue = parseGb(record, "almacenamiento");
+
+        // Capacidad de hardware como enteros GB: agrupa equipos del mismo tier.
+        long ramGb = Math.round(ramGbValue);
+        long stoGb = Math.round(stoGbValue);
         String hour = resolveHour(record);
-        outKey.set(licencia + "|" + ramGb + "|" + stoGb + "|" + hour);
+        outKey.set(empresaId + "|" + ramGb + "|" + stoGb + "|" + hour);
 
         MetricsWritable metrics = new MetricsWritable(
-            getDouble(record, "uso_procesador"),
-            getDouble(record, "uso_ram"),
-            getDouble(record, "cantidad_ram"),
-            getDouble(record, "uso_almacenamiento"),
-            getDouble(record, "cantidad_almacenamiento"),
-            getDouble(record, "bateria"),
+            getDouble(record, "cpu_percent"),
+            getDouble(record, "ram_percent"),
+            ramGbValue,
+            getDouble(record, "disco_percent"),
+            stoGbValue,
+            getDouble(record, "bateria_percent"),
             getDouble(record, "temperatura"),
-            getDouble(record, "stressScore")
+            getDouble(record, "stress_score")
         );
 
         context.write(outKey, metrics);
     }
 
-    // ── helpers ──────────────────────────────────────────────────────────────
-
     private String resolveHour(GenericRecord record) {
-        Object ts = record.get("timestamp");
+        Object ts = record.get("ts");
         if (ts != null) {
             long epochMs;
-            if (ts instanceof Long) {
-                epochMs = (Long) ts;
+            if (ts instanceof Number) {
+                epochMs = ((Number) ts).longValue();
             } else {
-                // Intenta parsear si viene como string ISO o epoch string
                 String tsStr = ts.toString();
                 try {
                     epochMs = Long.parseLong(tsStr);
                 } catch (NumberFormatException e) {
-                    // Fallback: hora actual
                     epochMs = System.currentTimeMillis();
                 }
             }
@@ -92,12 +94,20 @@ public class MetricsMapper extends Mapper<Void, GenericRecord, Text, MetricsWrit
         Object v = r.get(field);
         if (v == null) return 0.0;
         if (v instanceof Number) return ((Number) v).doubleValue();
-        try { return Double.parseDouble(v.toString()); }
-        catch (NumberFormatException e) { return 0.0; }
+        return parseNumber(v.toString());
     }
 
-    private static String getString(GenericRecord r, String field) {
+    private static double parseGb(GenericRecord r, String field) {
         Object v = r.get(field);
-        return v == null ? null : v.toString();
+        if (v == null) return 0.0;
+        if (v instanceof Number) return ((Number) v).doubleValue();
+        return parseNumber(v.toString());
+    }
+
+    private static double parseNumber(String value) {
+        Matcher matcher = NUMBER_PATTERN.matcher(value.replace(',', '.'));
+        if (!matcher.find()) return 0.0;
+        try { return Double.parseDouble(matcher.group(1)); }
+        catch (NumberFormatException e) { return 0.0; }
     }
 }
