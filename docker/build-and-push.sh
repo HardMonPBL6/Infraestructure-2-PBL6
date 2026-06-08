@@ -54,9 +54,9 @@ SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 
 # Servicios a construir: argumentos, o todo subdir con Dockerfile.
 services=("$@")
-if [ ${#services[@]} -eq 0 ]; then
+if [[ ${#services[@]} -eq 0 ]]; then
   for d in "$SCRIPT_DIR"/*/; do
-    [ -f "${d}Dockerfile" ] && services+=("$(basename "$d")")
+    [[ -f "${d}Dockerfile" ]] && services+=("$(basename "$d")")
   done
   # Servicios con contexto externo (submódulo): añadir si no están ya.
   for svc in "${!BUILD_CTX[@]}"; do
@@ -72,8 +72,8 @@ for svc in "${services[@]}"; do
   cloud="${CLOUD[$svc]:-}"
   ctx="${BUILD_CTX[$svc]:-$SCRIPT_DIR/$svc}"
   dockerfile="${BUILD_FILE[$svc]:-$ctx/Dockerfile}"
-  if [ -z "$cloud" ]; then echo "!! $svc: sin mapeo de nube, omitido"; continue; fi
-  if [ ! -f "$dockerfile" ]; then echo "!! $svc: sin Dockerfile ($dockerfile) — ¿submódulo sin inicializar?, omitido"; continue; fi
+  if [[ -z "$cloud" ]]; then echo "!! $svc: sin mapeo de nube, omitido"; continue; fi
+  if [[ ! -f "$dockerfile" ]]; then echo "!! $svc: sin Dockerfile ($dockerfile) — ¿submódulo sin inicializar?, omitido"; continue; fi
   img="$(registry_for "$cloud")/$svc:$IMAGE_TAG"
   echo "==> [$cloud] $svc -> $img"
   if docker build -t "$img" -f "$dockerfile" "$ctx" && docker push "$img"; then
@@ -83,7 +83,7 @@ for svc in "${services[@]}"; do
   fi
 done
 
-if [ ${#failed[@]} -gt 0 ]; then
+if [[ ${#failed[@]} -gt 0 ]]; then
   echo "Fallaron: ${failed[*]}"; exit 1
 fi
 echo "Listo. Tag: $IMAGE_TAG"
