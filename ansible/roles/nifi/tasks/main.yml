@@ -1,41 +1,71 @@
 ---
 # roles/nifi/tasks/main.yml
 #
-# Despliega Apache NiFi + cloudflared en el CT de la nube local (Proxmox).
+# Despliega un CLÚSTER NiFi HA (N nodos) + ZooKeeper local + cloudflared en los
+# CTs de la nube local (Proxmox). Se ejecuta sobre TODOS los hosts del grupo
+# [nifi] (var.topology.nifi = 3 → nifi-01/02/03).
+#
+# Alta disponibilidad:
+#   - Clúster NiFi de N nodos coordinado por un ensemble ZooKeeper LOCAL
+#     (co-localizado en los mismos CTs) → sin dependencia de otra nube.
+#   - cloudflared corre en CADA nodo conectándose al MISMO túnel: Cloudflare
+#     reparte las conexiones entre los conectores sanos (load balancing en el
+#     edge) y cada uno enruta a su NiFi local. No hay LB interno (sería un SPOF).
+#   - El procesador HandleHttpRequest corre en todos los nodos (ejecución por
+#     defecto = all nodes), así cada cloudflared tiene un listener local vivo.
 #
 # Red de gestión vs datos:
-#   - Red de gestión (subred pública local):
-#       · Puerto 8080 → UI de NiFi. Accesible desde el nodo de gestión (10.0.0.1)
-#         vía LAN o WireGuard. NO exponer directamente a Internet.
-#       · cloudflared: el daemon abre una conexión SALIENTE al edge de Cloudflare
-#         (sin inbound ports). Enruta https://ingest.<zona> → localhost:8081.
-#   - Red de datos (salida hacia otras nubes):
-#       · Puerto 9092 → produce mensajes a Kafka en gcp-a (vía WireGuard routing).
-#       · Puerto 8081 → consulta Schema Registry en gcp-a (vía WireGuard).
-#       · Puerto 3307 → lookup JDBC de licencias en MySQL gcp-b (vía WireGuard).
+#   - 8080 → UI de NiFi (red gestión, vía LAN/WireGuard). NO exponer a Internet.
+#   - 8081 → listener de ingesta (HandleHttpRequest), destino de cloudflared.
+#   - 11443 → protocolo de clúster NiFi entre nodos (red local Proxmox).
+#   - 6342 → load-balance de NiFi entre nodos.
+#   - 2181/2888/3888 → ZooKeeper local (ensemble del clúster NiFi).
+#   - Salida WireGuard: 9092 (Kafka gcp-a), 8081 (Schema Registry gcp-a),
+#     3307 (MySQL gcp-b).
 #
 # Flujo de un registro:
-#   Agente PC → HTTPS Cloudflare Tunnel → NiFi:8081 (ingest)
+#   Agente PC → Cloudflare Tunnel (HA) → NiFi:8081 (cualquier nodo)
 #   NiFi valida licencia (MySQL gcp-b JDBC) → serializa Avro (Schema Registry gcp-a)
-#   → publica en Kafka gcp-a (puerto 9092)
+#   → publica en Kafka gcp-a (9092). El flujo se replica a todos los nodos del clúster.
 
-- name: Crear directorio de configuración NiFi en el host
+- name: Crear directorios de configuración NiFi en el host
   file:
-    path: /etc/webhardmon/nifi
+    path: "{{ item }}"
     state: directory
     mode: "0750"
+  loop:
+    - /etc/webhardmon/nifi
+    - /etc/webhardmon/nifi/drivers
 
-- name: Crear volumen persistente para el estado de NiFi
+- name: Descargar MySQL Connector/J (driver JDBC para NiFi)
+  get_url:
+    url: "https://repo1.maven.org/maven2/com/mysql/mysql-connector-j/{{ nifi_mysql_connector_version }}/mysql-connector-j-{{ nifi_mysql_connector_version }}.jar"
+    dest: "/etc/webhardmon/nifi/drivers/mysql-connector-j-{{ nifi_mysql_connector_version }}.jar"
+    mode: "0644"
+
+# ── ZooKeeper local (ensemble de coordinación del clúster) ───────────────────
+- name: Desplegar ZooKeeper local del clúster NiFi
+  import_tasks: zookeeper.yml
+
+- name: Esperar a que el quórum ZK local esté formado (todos los nodos arriba)
+  shell: "echo ruok | nc -w 2 127.0.0.1 {{ nifi_zk_client_port }}"
+  register: nifi_zk_ruok
+  changed_when: false
+  failed_when: false
+  retries: 15
+  delay: 4
+  until: nifi_zk_ruok.stdout == 'imok'
+
+# ── Contenedor NiFi (modo clúster) ───────────────────────────────────────────
+- name: Crear volúmenes persistentes de NiFi (estado + logs)
   community.docker.docker_volume:
-    name: nifi-state
+    name: "{{ item }}"
     state: present
+  loop:
+    - nifi-state
+    - nifi-logs
 
-- name: Crear volumen para logs de NiFi
-  community.docker.docker_volume:
-    name: nifi-logs
-    state: present
-
-- name: Levantar contenedor Apache NiFi
+- name: Levantar contenedor Apache NiFi (nodo del clúster)
   community.docker.docker_container:
     name: nifi
     image: "{{ nifi_image }}"
@@ -43,36 +73,45 @@
     restart_policy: unless-stopped
     network_mode: host
     env:
-      # Modo HTTP (sin TLS) para despliegue interno.
-      # El acceso externo de los colectores va siempre cifrado por Cloudflare TLS.
-      # Red gestión: UI accesible en el puerto 8080 de la IP del CT.
-      NIFI_WEB_HTTP_HOST: "0.0.0.0"
+      # --- Modo HTTP (sin TLS) en la red interna de confianza ----------------
+      # El acceso externo de los colectores va cifrado por Cloudflare TLS; el
+      # tráfico interno (UI, protocolo de clúster) va en claro sobre la red
+      # local Proxmox. HTTP evita el problema de confianza mutua de certificados
+      # auto-firmados entre nodos del clúster.
+      NIFI_WEB_HTTP_HOST: "{{ nifi_node_address }}"
       NIFI_WEB_HTTP_PORT: "{{ nifi_ui_port | string }}"
-      NIFI_WEB_HTTPS_HOST: ""
-      NIFI_WEB_HTTPS_PORT: ""
-      NIFI_WEB_PROXY_HOST: ""
-      # Heap: ajustar según RAM disponible del CT (la nube local no tiene restricción
-      # de spot; este valor es un mínimo razonable).
-      NIFI_JVM_HEAP_INIT: "512m"
-      NIFI_JVM_HEAP_MAX: "2g"
+      NIFI_WEB_PROXY_HOST: "{{ nifi_node_address }}:{{ nifi_ui_port }}"
+      # --- Clúster ------------------------------------------------------------
+      NIFI_CLUSTER_IS_NODE: "true"
+      NIFI_CLUSTER_NODE_ADDRESS: "{{ nifi_node_address }}"
+      NIFI_CLUSTER_NODE_PROTOCOL_PORT: "{{ nifi_cluster_protocol_port | string }}"
+      NIFI_CLUSTER_LOAD_BALANCE_HOST: "{{ nifi_node_address }}"
+      NIFI_CLUSTER_LOAD_BALANCE_PORT: "{{ nifi_cluster_lb_port | string }}"
+      NIFI_ELECTION_MAX_WAIT: "{{ nifi_election_max_wait | default('1 min') }}"
+      NIFI_ELECTION_MAX_CANDIDATES: "{{ groups['nifi'] | length | string }}"
+      # --- ZooKeeper (ensemble local) -----------------------------------------
+      NIFI_ZK_CONNECT_STRING: "{{ nifi_zk_connect_string }}"
+      NIFI_ZK_ROOT_NODE: "/nifi"
+      # --- Clave de propiedades sensibles: DEBE ser idéntica en todos los nodos
+      NIFI_SENSITIVE_PROPS_KEY: "{{ nifi_sensitive_props_key }}"
+      NIFI_JVM_HEAP_INIT: "{{ nifi_heap_init | default('512m') }}"
+      NIFI_JVM_HEAP_MAX: "{{ nifi_heap_max | default('2g') }}"
     volumes:
       - "nifi-state:/opt/nifi/nifi-current/state"
       - "nifi-logs:/opt/nifi/nifi-current/logs"
+      - "/etc/webhardmon/nifi/drivers:/opt/nifi/drivers:ro"
     state: started
 
-- name: Esperar a que NiFi esté disponible (puede tardar ~90 s en el primer arranque)
+- name: Esperar a que NiFi acepte conexiones (puede tardar ~120 s en formar clúster)
   wait_for:
     host: "127.0.0.1"
     port: "{{ nifi_ui_port }}"
-    timeout: 180
+    timeout: 240
 
-# ── cloudflared (Cloudflare Tunnel) ─────────────────────────────────────────
-# El daemon abre una conexión SALIENTE al edge de Cloudflare.
-# Enruta ingest.<zona> → http://localhost:{{ nifi_ingest_port }} (NiFi ListenHTTP).
-# El token viene de `tofu output -raw cloudflared_tunnel_token` e inyectado
-# en el inventario/vault como vault_cloudflared_tunnel_token.
-
-- name: Levantar cloudflared (Cloudflare Tunnel)
+# ── cloudflared (conector HA del túnel Cloudflare) ───────────────────────────
+# Corre en CADA nodo con el MISMO token → Cloudflare balancea entre conectores.
+# Enruta ingest.<zona> → http://localhost:{{ nifi_ingest_port }} (NiFi local).
+- name: Levantar cloudflared (conector HA del túnel Cloudflare)
   community.docker.docker_container:
     name: cloudflared
     image: "{{ cloudflared_image }}"
@@ -82,9 +121,62 @@
     command: "tunnel --no-autoupdate run --token {{ cloudflared_tunnel_token }}"
     state: "{{ 'started' if cloudflared_enabled else 'absent' }}"
 
-- name: Mostrar URL de acceso a NiFi
+# ── Configuración del flujo (UNA sola vez contra el coordinador) ─────────────
+# En un clúster, el flujo se replica a todos los nodos: basta configurarlo una
+# vez. run_once lo ejecuta en el primer nodo del grupo, contra su NiFi local.
+- name: Instalar python3-requests para el script de configuración NiFi
+  package:
+    name: python3-requests
+    state: present
+  run_once: true
+
+- name: Crear directorio /opt/webhardmon
+  file:
+    path: /opt/webhardmon
+    state: directory
+    mode: "0755"
+  run_once: true
+
+- name: Copiar script de configuración del flujo NiFi
+  copy:
+    src: configure_flow.py
+    dest: /opt/webhardmon/configure_nifi_flow.py
+    mode: "0755"
+  run_once: true
+
+- name: Esperar a que el clúster NiFi tenga coordinador (Cluster Coordinator elegido)
+  uri:
+    url: "http://127.0.0.1:{{ nifi_ui_port }}/nifi-api/controller/cluster"
+    method: GET
+    status_code: 200
+  register: nifi_cluster_state
+  retries: 30
+  delay: 8
+  until: >-
+    nifi_cluster_state.status == 200 and
+    (nifi_cluster_state.json.cluster.nodes | selectattr('roles', 'contains', 'Cluster Coordinator') | list | length) > 0
+  run_once: true
+  changed_when: false
+
+- name: Configurar flujo NiFi vía REST API (idempotente, una vez)
+  command: python3 /opt/webhardmon/configure_nifi_flow.py
+  environment:
+    NIFI_URL: "http://127.0.0.1:{{ nifi_ui_port }}"
+    MYSQL_JDBC_URL: "jdbc:mysql://{{ nifi_mysql_host }}:{{ nifi_mysql_port | default(3307) }}/{{ nifi_mysql_db | default('telemetriadb') }}"
+    MYSQL_USER: "{{ nifi_mysql_user }}"
+    MYSQL_PASS: "{{ nifi_mysql_password }}"
+    MYSQL_DRIVER_JAR: "/opt/nifi/drivers/mysql-connector-j-{{ nifi_mysql_connector_version }}.jar"
+    KAFKA_BROKERS: "{{ nifi_kafka_brokers }}"
+    SCHEMA_REGISTRY_URL: "{{ nifi_schema_registry_url }}"
+  register: nifi_flow_result
+  changed_when: "'configurado y arrancado' in nifi_flow_result.stdout"
+  failed_when: nifi_flow_result.rc != 0
+  run_once: true
+
+- name: Resumen del despliegue del clúster NiFi
   debug:
     msg:
-      - "NiFi UI (red gestión): http://{{ ansible_host }}:{{ nifi_ui_port }}/nifi"
-      - "Ingest (colectores → Cloudflare Tunnel → NiFi): puerto local {{ nifi_ingest_port }}"
-      - "Schema Registry (red datos): {{ nifi_schema_registry_url }}"
+      - "Clúster NiFi HA: {{ groups['nifi'] | length }} nodos ({{ groups['nifi'] | join(', ') }})"
+      - "UI (por nodo): http://{{ nifi_node_address }}:{{ nifi_ui_port }}/nifi"
+      - "Ingesta: cloudflared HA en cada nodo → localhost:{{ nifi_ingest_port }}"
+      - "ZooKeeper local: {{ nifi_zk_connect_string }}"

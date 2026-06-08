@@ -318,7 +318,7 @@ variable "topology" {
     harbor    = number
   })
   default = {
-    nifi      = 1
+    nifi      = 3 # clúster NiFi HA (3 nodos = ZK quorum 2, tolera 1 caída)
     hdfs      = 3
     mapreduce = 1
     harbor    = 1

@@ -10,6 +10,40 @@ nifi_image: "{{ container_registry_local | default('harbor.local') }}/nifi:{{ im
 nifi_ui_port: 8080
 nifi_ingest_port: 8081          # ListenHTTP/HandleHttpRequest — destino del tunel
 
+# --- Clúster NiFi HA --------------------------------------------------------
+# El grupo [nifi] tiene N nodos (var.topology.nifi). Forman un clúster NiFi
+# coordinado por un ensemble ZooKeeper LOCAL (co-localizado en estos mismos CTs).
+# Dirección de este nodo en la red local (la usan los demás nodos y ZK).
+nifi_node_address: "{{ ansible_host | default(inventory_hostname) }}"
+nifi_cluster_protocol_port: 11443   # protocolo de clúster entre nodos
+nifi_cluster_lb_port: 6342          # load-balance de colas entre nodos
+nifi_election_max_wait: "1 min"     # espera de elección del coordinador al arrancar
+nifi_heap_init: "512m"
+nifi_heap_max: "2g"
+
+# Clave de propiedades sensibles — DEBE ser idéntica en todos los nodos del
+# clúster (si difiere, los nodos no se unen). Inyectar por vault.
+nifi_sensitive_props_key: "{{ vault_nifi_sensitive_props_key | default('hardmonNiFiSensitiveKey2026') }}"
+
+# --- ZooKeeper local (ensemble del clúster NiFi, en los nodos [nifi]) --------
+zookeeper_image: "{{ container_registry_local | default('harbor.local') }}/zookeeper:{{ image_tag }}"
+nifi_zk_client_port: 2181
+nifi_zk_heap_mb: 512
+# myid determinista por posición en el grupo [nifi] (1..N).
+nifi_zk_myid: "{{ groups['nifi'].index(inventory_hostname) + 1 }}"
+# server.N=ip:2888:3888 para cada nodo NiFi (formato confluentinc/cp-zookeeper).
+nifi_zk_servers: >-
+  {{ groups['nifi']
+     | map('extract', hostvars, 'ansible_host')
+     | map('regex_replace', '$', ':2888:3888')
+     | join(';') }}
+# Cadena de conexión que NiFi usa para hablar con el ensemble local: ip:2181,...
+nifi_zk_connect_string: >-
+  {{ groups['nifi']
+     | map('extract', hostvars, 'ansible_host')
+     | map('regex_replace', '$', ':' + (nifi_zk_client_port | string))
+     | join(',') }}
+
 # --- Avro + Confluent Schema Registry ---------------------------------------
 # NiFi serializa a Avro contra el Schema Registry (gcp-a node-01): el controller
 # service ConfluentSchemaRegistry apunta a esta URL y los records se publican en
@@ -31,6 +65,26 @@ cloudflared_tunnel_token: "{{ vault_cloudflared_tunnel_token | default('') }}"
 #     {{ cloudflared_image }} tunnel --no-autoupdate run \
 #     --token {{ cloudflared_tunnel_token }}
 # Con --network host alcanza el listener de NiFi en localhost:{{ nifi_ingest_port }}.
+
+# --- Configuración del flujo (usada por configure_flow.py vía REST API) ------
+# Credenciales NiFi — NO en claro. Inyectar por vault.
+nifi_admin_user: "admin"
+nifi_admin_password: "{{ vault_nifi_admin_password | default('hardmonNiFiAdmin2026') }}"
+
+# MySQL: NiFi está en la nube local y accede a MySQL en gcp-b vía WireGuard.
+# nifi_mysql_host = IP WireGuard del gateway gcp-b (primer nodo del grupo mysql).
+nifi_mysql_host: "{{ hostvars[groups['mysql'][0]].ansible_host }}"
+nifi_mysql_port: "{{ mysql_port | default(3307) }}"
+nifi_mysql_db: "{{ mysql_database | default('telemetriadb') }}"
+nifi_mysql_user: "{{ vault_mysql_app_user | default('root') }}"
+nifi_mysql_password: "{{ vault_mysql_app_password | default('root') }}"
+
+# Driver JDBC MySQL (descargado de Maven Central por el rol nifi).
+nifi_mysql_connector_version: "8.4.0"
+
+# Kafka: brokers gcp-a alcanzables desde NiFi (nube local) vía WireGuard.
+# Construye "ip1:9092,ip2:9092,ip3:9092" a partir del grupo kafka.
+nifi_kafka_brokers: "{{ groups['kafka'] | map('extract', hostvars, 'ansible_host') | map('regex_replace', '$', ':' + (kafka_port | default(9092) | string)) | join(',') }}"
 
 # --- Contrato del collector (PCs de usuario, fuera de Ansible) ---------------
 # Los collectors hacen POST a https://ingest.<zona>/<ruta> con las cabeceras del

@@ -133,9 +133,11 @@ module "local_ct" {
   tags = [var.project_name, local.local_cloud_tag, each.value.role]
 }
 
-# ---- Cloudflare Tunnel: ingesta externa hacia NiFi --------------------------
+# ---- Cloudflare Tunnel: ingesta externa hacia NiFi (HA) ---------------------
 # El collector (en PCs de usuario, fuera de la malla WireGuard y detras de NAT) entra por
-# aqui. cloudflared corre en el CT de NiFi con el token que exporta el modulo.
+# aqui. Se crea UN tunel (plano de control); cloudflared corre en CADA CT de NiFi con el
+# MISMO token -> conectores HA: Cloudflare reparte entre los conectores sanos y cada uno
+# enruta a su NiFi local (localhost:8081). El clustering NiFi lo coordina un ZK local.
 
 module "cloudflare_tunnel" {
   source    = "./modules/cloudflare-tunnel"

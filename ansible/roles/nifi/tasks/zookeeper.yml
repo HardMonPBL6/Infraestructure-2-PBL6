@@ -1,0 +1,48 @@
+---
+# roles/nifi/tasks/zookeeper.yml
+#
+# ZooKeeper LOCAL para la coordinación del clúster NiFi (HA).
+#
+# Se despliega un ensemble de ZK co-localizado en los MISMOS CTs que NiFi
+# (uno por nodo del grupo [nifi]). Es INDEPENDIENTE del ensemble ZK de gcp-a
+# (que coordina Kafka): así la disponibilidad del gateway de ingesta no depende
+# de otra nube ni de la malla WireGuard. Con 3 nodos el quórum es 2 → tolera la
+# caída de 1 nodo sin perder la coordinación del clúster.
+#
+# myid determinista por posición en el grupo [nifi] (1..N) → estable entre rebuilds.
+
+- name: Crear volúmenes de ZooKeeper (datos + logs)
+  community.docker.docker_volume:
+    name: "{{ item }}"
+    state: present
+  loop:
+    - nifi-zk-data
+    - nifi-zk-logs
+
+- name: Levantar contenedor ZooKeeper (ensemble local del clúster NiFi)
+  community.docker.docker_container:
+    name: nifi-zookeeper
+    image: "{{ zookeeper_image }}"
+    pull: true
+    restart_policy: unless-stopped
+    network_mode: host
+    env:
+      ZOOKEEPER_SERVER_ID: "{{ nifi_zk_myid | string }}"
+      ZOOKEEPER_CLIENT_PORT: "{{ nifi_zk_client_port | string }}"
+      ZOOKEEPER_TICK_TIME: "2000"
+      ZOOKEEPER_INIT_LIMIT: "5"
+      ZOOKEEPER_SYNC_LIMIT: "2"
+      ZOOKEEPER_MAX_CLIENT_CNXNS: "60"
+      # server.N=ip:2888:3888 para cada nodo del grupo [nifi] (red local Proxmox).
+      ZOOKEEPER_SERVERS: "{{ nifi_zk_servers }}"
+      KAFKA_HEAP_OPTS: "-Xms{{ nifi_zk_heap_mb }}m -Xmx{{ nifi_zk_heap_mb }}m"
+    volumes:
+      - "nifi-zk-data:/var/lib/zookeeper/data"
+      - "nifi-zk-logs:/var/lib/zookeeper/log"
+    state: started
+
+- name: Esperar a que ZooKeeper local acepte conexiones (puerto {{ nifi_zk_client_port }})
+  wait_for:
+    host: "127.0.0.1"
+    port: "{{ nifi_zk_client_port }}"
+    timeout: 60
