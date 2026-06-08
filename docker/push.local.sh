@@ -22,6 +22,7 @@ registry_for() {
   case "$1" in
     gcp-a) echo "${GCP_A_LOCATION}-docker.pkg.dev/${GCP_A_PROJECT}/${PROJECT_NAME}-a-docker" ;;
     gcp-b) echo "${GCP_B_LOCATION}-docker.pkg.dev/${GCP_B_PROJECT}/${PROJECT_NAME}-b-docker" ;;
+    *) echo "Error: registry ezezaguna '$1'" >&2; return 1 ;;
   esac
 }
 ORIG_ACCT="$(gcloud config get-value account 2>/dev/null)"
