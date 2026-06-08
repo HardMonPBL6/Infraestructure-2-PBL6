@@ -17,6 +17,12 @@
     name: "{{ mr_image }}"
     source: pull
     force_source: true
+  # La imagen es grande (~2 GB) y el pull desde Harbor por la ruta del gateway
+  # puede cortarse ("connection reset by peer"). Reintentar evita fallos transitorios.
+  register: mr_image_pull
+  until: mr_image_pull is succeeded
+  retries: 4
+  delay: 10
 
 - name: Agregar ruta hacia gcp-b vía gateway WireGuard local
   ansible.builtin.command: "ip route replace {{ mr_hbase_route_cidr }} via {{ mr_local_gateway }}"

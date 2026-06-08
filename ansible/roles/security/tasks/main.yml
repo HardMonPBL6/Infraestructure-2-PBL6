@@ -89,6 +89,170 @@
     - not ansible_check_mode
     - security_fail2ban_sshd.rc | default(1) != 0
 
+# ===================== MONITORIZACIÓN — AUDITD (Nivel 2) ====================
+- name: Auditd — instalar
+  ansible.builtin.apt:
+    name:
+      - auditd
+      - audispd-plugins
+    state: present
+  when: security_auditd_enabled
+
+- name: Auditd — desplegar reglas de monitorización (SSH, red entre hosts, ficheros críticos)
+  ansible.builtin.template:
+    src: auditd-security.rules.j2
+    dest: "{{ security_auditd_rules_path }}"
+    owner: root
+    group: root
+    mode: "0640"
+    backup: true
+  notify: restart auditd
+  when: security_auditd_enabled
+
+- name: Auditd — ajustar retención y rotación de logs
+  ansible.builtin.lineinfile:
+    path: /etc/audit/auditd.conf
+    regexp: "{{ item.regexp }}"
+    line: "{{ item.line }}"
+    backup: true
+  loop:
+    - { regexp: '^max_log_file ', line: 'max_log_file = {{ security_auditd_max_log_file }}' }
+    - { regexp: '^num_logs ', line: 'num_logs = {{ security_auditd_num_logs }}' }
+    - { regexp: '^max_log_file_action', line: 'max_log_file_action = ROTATE' }
+    - { regexp: '^space_left_action', line: 'space_left_action = SYSLOG' }
+  notify: restart auditd
+  when: security_auditd_enabled
+
+- name: Auditd — habilitar y arrancar
+  ansible.builtin.systemd:
+    name: auditd
+    enabled: true
+    state: started
+  when:
+    - security_auditd_enabled
+    - not ansible_check_mode
+
+- name: Auditd — aplicar reglas pendientes antes de verificar
+  ansible.builtin.meta: flush_handlers
+
+- name: Auditd — cargar reglas en el kernel
+  ansible.builtin.command: augenrules --load
+  changed_when: false
+  when:
+    - security_auditd_enabled
+    - not ansible_check_mode
+
+- name: Auditd — leer reglas activas del kernel
+  ansible.builtin.command: auditctl -l
+  register: security_auditd_rules
+  changed_when: false
+  failed_when: false
+  when:
+    - security_auditd_enabled
+    - not ansible_check_mode
+
+- name: Auditd — comprobar que las reglas clave están cargadas
+  ansible.builtin.assert:
+    that:
+      - "'auth_log' in security_auditd_rules.stdout"
+      - "'network_connect' in security_auditd_rules.stdout"
+    fail_msg: "Las reglas de auditd no están activas (auth_log / network_connect ausentes)."
+    success_msg: "auditd monitoriza SSH, red entre hosts y ficheros críticos."
+  when:
+    - security_auditd_enabled
+    - not ansible_check_mode
+    - security_auditd_rules.rc | default(1) == 0
+
+# ==================== INTEGRIDAD DE FICHEROS — AIDE (Nivel 3) ================
+- name: AIDE — instalar
+  ansible.builtin.apt:
+    name: aide
+    state: present
+  when: security_aide_enabled
+
+- name: AIDE — desplegar reglas de integridad de ficheros críticos
+  ansible.builtin.template:
+    src: aide-hardmon.conf.j2
+    dest: "{{ security_aide_rules_path }}"
+    owner: root
+    group: root
+    mode: "0644"
+    backup: true
+  when: security_aide_enabled
+
+- name: AIDE — comprobar si la base de datos ya existe
+  ansible.builtin.stat:
+    path: /var/lib/aide/aide.db
+  register: security_aide_db
+  when: security_aide_enabled
+
+# Inicializa la BD una sola vez: en un nodo spot recién reconstruido no existe y
+# se crea; en re-ejecuciones sobre el mismo nodo se omite (idempotente).
+- name: AIDE — inicializar base de datos (primera vez)
+  ansible.builtin.command: aide --init --config=/etc/aide/aide.conf
+  register: security_aide_init
+  changed_when: true
+  when:
+    - security_aide_enabled
+    - not ansible_check_mode
+    - not security_aide_db.stat.exists
+
+- name: AIDE — activar la base de datos recién generada
+  ansible.builtin.command: mv /var/lib/aide/aide.db.new /var/lib/aide/aide.db
+  args:
+    creates: /var/lib/aide/aide.db
+  when:
+    - security_aide_enabled
+    - not ansible_check_mode
+    - not security_aide_db.stat.exists
+
+- name: AIDE — desplegar script de comprobación con alertas
+  ansible.builtin.template:
+    src: aide-check.sh.j2
+    dest: "{{ security_aide_check_script }}"
+    owner: root
+    group: root
+    mode: "0755"
+  when: security_aide_enabled
+
+- name: AIDE — programar comprobación diaria de integridad (cron)
+  ansible.builtin.cron:
+    name: "AIDE comprobacion integridad ficheros"
+    minute: "{{ security_aide_cron_minute }}"
+    hour: "{{ security_aide_cron_hour }}"
+    job: "{{ security_aide_check_script }}"
+    user: root
+  when: security_aide_enabled
+
+- name: AIDE — comprobación de integridad inicial
+  ansible.builtin.command: aide --check --config=/etc/aide/aide.conf
+  register: security_aide_check
+  changed_when: false
+  failed_when: false
+  when:
+    - security_aide_enabled
+    - not ansible_check_mode
+
+- name: AIDE — resultado de la comprobación de integridad
+  ansible.builtin.debug:
+    msg: >-
+      AIDE: {{ 'sin cambios de integridad' if security_aide_check.rc == 0
+      else 'CAMBIOS DETECTADOS — revisa /var/log/aide/' }}
+  when:
+    - security_aide_enabled
+    - not ansible_check_mode
+
+- name: AIDE — abortar si se exige integridad limpia y hay cambios
+  ansible.builtin.assert:
+    that:
+      - "security_aide_check.rc == 0"
+    fail_msg: "AIDE detectó cambios de integridad — revisa /var/log/aide/."
+    success_msg: "AIDE en marcha; ficheros críticos íntegros."
+  when:
+    - security_aide_enabled
+    - security_aide_assert_clean
+    - not ansible_check_mode
+
 # ============================ RESUMEN =======================================
 - name: Resumen del endurecimiento aplicado
   ansible.builtin.debug:
@@ -97,4 +261,6 @@
       - "SSH puerto {{ security_ssh_port }} | root={{ security_ssh_permit_root_login }} | password-auth={{ security_ssh_password_authentication }} | MaxAuthTries={{ security_ssh_max_auth_tries }}"
       - "Contraseñas: minlen={{ security_password_minlen }}, exige mayús/minús/número/especial"
       - "Fail2ban: maxretry={{ security_fail2ban_maxretry }}, bantime={{ security_fail2ban_bantime }}, ignoreip='{{ security_fail2ban_ignoreip | join(' ') }}'"
+      - "Auditd (Nivel 2): {{ 'monitorizando SSH, red entre hosts y ficheros críticos' if security_auditd_enabled else 'desactivado' }}"
+      - "AIDE (Nivel 3): {{ 'integridad activa, comprobación diaria ' ~ security_aide_cron_hour ~ ':' ~ security_aide_cron_minute if security_aide_enabled else 'desactivado' }}"
       - "RECUERDA: las conexiones nuevas usan el puerto {{ security_ssh_port }} (ssh -p {{ security_ssh_port }}). Verifica acceso antes de cerrar sesión."

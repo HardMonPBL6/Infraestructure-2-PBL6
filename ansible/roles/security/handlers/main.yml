@@ -10,3 +10,9 @@
   ansible.builtin.systemd:
     name: fail2ban
     state: restarted
+
+- name: restart auditd
+  # auditd no se reinicia limpiamente con systemd en algunas imágenes; el
+  # `service` clásico recarga las reglas sin matar el demonio del kernel.
+  ansible.builtin.command: service auditd restart
+  changed_when: true

@@ -43,14 +43,18 @@
     restart_policy: unless-stopped
     network_mode: host
     env:
-      # Modo HTTP (sin TLS) para despliegue interno.
-      # El acceso externo de los colectores va siempre cifrado por Cloudflare TLS.
-      # Red gestión: UI accesible en el puerto 8080 de la IP del CT.
-      NIFI_WEB_HTTP_HOST: "0.0.0.0"
-      NIFI_WEB_HTTP_PORT: "{{ nifi_ui_port | string }}"
-      NIFI_WEB_HTTPS_HOST: ""
-      NIFI_WEB_HTTPS_PORT: ""
-      NIFI_WEB_PROXY_HOST: ""
+      # NiFi 2.0 sólo sirve la UI por HTTPS con autenticación (no admite el modo
+      # HTTP simple de 1.x). UI interna (red gestión/LAN), NO pública — el túnel
+      # Cloudflare sólo expone la ingesta (8081). HTTPS en {{ nifi_ui_port }} con
+      # single-user auth determinista (credenciales del vault, no la aleatoria).
+      NIFI_WEB_HTTPS_HOST: "0.0.0.0"
+      NIFI_WEB_HTTPS_PORT: "{{ nifi_ui_port | string }}"
+      # NiFi 2.0 hace SNI host check: hay que entrar por un HOSTNAME de esta lista
+      # blanca (los navegadores NO mandan SNI al conectar por IP cruda → 400
+      # Invalid SNI). Se admiten el hostname del CT, localhost (túnel SSH) y la IP.
+      NIFI_WEB_PROXY_HOST: "{{ inventory_hostname }}:{{ nifi_ui_port }},localhost:{{ nifi_ui_port }},{{ ansible_host }}:{{ nifi_ui_port }}"
+      SINGLE_USER_CREDENTIALS_USERNAME: "{{ nifi_single_user_username }}"
+      SINGLE_USER_CREDENTIALS_PASSWORD: "{{ nifi_single_user_password }}"
       # Heap: ajustar según RAM disponible del CT (la nube local no tiene restricción
       # de spot; este valor es un mínimo razonable).
       NIFI_JVM_HEAP_INIT: "512m"
@@ -85,6 +89,6 @@
 - name: Mostrar URL de acceso a NiFi
   debug:
     msg:
-      - "NiFi UI (red gestión): http://{{ ansible_host }}:{{ nifi_ui_port }}/nifi"
+      - "NiFi UI (red gestión): https://{{ ansible_host }}:{{ nifi_ui_port }}/nifi (login: {{ nifi_single_user_username }})"
       - "Ingest (colectores → Cloudflare Tunnel → NiFi): puerto local {{ nifi_ingest_port }}"
       - "Schema Registry (red datos): {{ nifi_schema_registry_url }}"

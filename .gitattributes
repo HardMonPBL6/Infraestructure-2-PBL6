@@ -1,0 +1,10 @@
+# Keep shell scripts LF so they work when COPY'd into Linux container images.
+# (CRLF shebangs make `exec /entrypoint.sh` fail with "no such file or directory".)
+*.sh text eol=lf
+
+# Other text that lives in images / is consumed by Linux tooling.
+*.yml text eol=lf
+*.yaml text eol=lf
+*.j2 text eol=lf
+Dockerfile text eol=lf
+*.tftpl text eol=lf

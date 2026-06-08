@@ -1,10 +1,11 @@
 ---
 # =============================================================================
-# Endurecimiento de seguridad — SSH, política de contraseñas y Fail2ban
+# Endurecimiento de seguridad — SSH, contraseñas, Fail2ban, Auditd y AIDE
 # =============================================================================
 #
-# Implementa security-playbook-corregido.docx sobre TODAS las máquinas de
-# WebHardMon (locales + GCP), adaptado a las particularidades del repo:
+# Implementa security-playbook-corregido.docx (Versión 3 — Nivel 3) sobre TODAS
+# las máquinas de WebHardMon (locales + GCP), adaptado a las particularidades
+# del repo:
 #
 #   * NO edita /etc/ssh/sshd_config: escribe un drop-in en sshd_config.d/ para
 #     no pelearse con el hardening de cloud-init (10-webhardmon.conf).
@@ -13,7 +14,15 @@
 #     queda en el 2222. La detección hace el playbook reejecutable en cualquier
 #     punto de ese ciclo — requisito por spot+DELETE (ver group_vars/README.md).
 #   * ignoreip cubre la malla WireGuard (10.0.0.0/24) + las subredes de cada
-#     nube, para que el nodo de control de Ansible nunca se autobloquee.
+#     nube, para que el nodo de control de Ansible nunca se autobloquee (el
+#     `ignoreip = 127.0.0.1/8 ::1` del docx autobloquearía al nodo de control).
+#
+# Capas añadidas en la V3 del docx (rúbrica RGI311):
+#   * Auditd (Nivel 2): monitoriza autenticación SSH, escalada de privilegios,
+#     tráfico de red entre hosts (connect/accept) y ficheros críticos.
+#   * AIDE (Nivel 3): base de datos de integridad de ficheros críticos +
+#     comprobación diaria por cron con alerta a syslog. La BD se inicializa una
+#     sola vez (idempotente / a prueba de reconstrucción spot).
 #
 # Ejecutar ANTES que los playbooks de servicio: deja los hosts en el puerto que
 # el inventario (ansible_port) espera en régimen permanente.

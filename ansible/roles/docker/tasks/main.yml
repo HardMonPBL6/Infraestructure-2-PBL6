@@ -33,10 +33,21 @@
 
 # En la nube local (Proxmox LXC) el registry es Harbor. Autenticar con la
 # contraseña de admin desde vault. Sin esto docker pull falla con 401.
+# Sólo en clientes de Harbor (NiFi, MapReduce). En el propio host de Harbor se
+# omite: es el servidor del registry, no un cliente, y durante su primer
+# despliegue Harbor aún no está arrancado (login fallaría: chicken-and-egg).
 - name: Autenticar Docker contra Harbor (nube local)
   ansible.builtin.shell: >
     echo "{{ vault_harbor_admin_password }}" |
     docker login "{{ harbor_registry }}" -u admin --password-stdin
-  when: harbor_registry | default('') | length > 0
+  when:
+    - harbor_registry | default('') | length > 0
+    - "'harbor' not in group_names"
+  # El login a Harbor a veces falla de forma transitoria desde los LXC locales
+  # (handshake TLS / ruta vía gateway). Reintentar evita fallos intermitentes.
+  register: harbor_login
+  until: harbor_login.rc == 0
+  retries: 5
+  delay: 6
   changed_when: false
   no_log: true

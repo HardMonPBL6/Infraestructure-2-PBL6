@@ -24,3 +24,10 @@ harbor_registry: "{{ harbor_hostname }}"
 # La nube local no usa Spot VMs (son LXC Proxmox persistentes).
 node_is_spot: false
 node_ephemeral_data: false
+
+# Auditd NO funciona en LXC no privilegiado: el subsistema de auditoría del
+# kernel no está namespacizado, así que auditd.service no arranca dentro del
+# contenedor (Job for auditd.service failed). La monitorización de Nivel 2 se
+# aplica en las VMs reales de GCP; aquí se omite. AIDE (Nivel 3, hashes en
+# espacio de usuario) sí se mantiene activo en los LXC.
+security_auditd_enabled: false

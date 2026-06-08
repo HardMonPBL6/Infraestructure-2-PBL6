@@ -1,0 +1,16 @@
+# {{ ansible_managed }}
+# Reglas AIDE WebHardMon (Nivel 3) — ficheros críticos a vigilar por integridad.
+# Se incluye desde /etc/aide/aide.conf (directorio conf.d).
+# p+i+n+u+g+s+m+sha256 = permisos, inodo, nº enlaces, uid, gid, tamaño, mtime, hash.
+/etc/ssh/sshd_config       p+i+n+u+g+s+m+sha256
+/etc/ssh/ssh_config        p+i+n+u+g+s+m+sha256
+/etc/pam.d/                p+i+n+u+g+s+m+sha256
+/etc/shadow                p+i+n+u+g+s+sha256
+/etc/passwd                p+i+n+u+g+s+m+sha256
+/etc/sudoers               p+i+n+u+g+s+m+sha256
+/etc/fail2ban/jail.local   p+i+n+u+g+s+m+sha256
+/etc/fail2ban/jail.conf    p+i+n+u+g+s+m+sha256
+/etc/audit/rules.d/        p+i+n+u+g+s+m+sha256
+/etc/audit/auditd.conf     p+i+n+u+g+s+m+sha256
+/usr/sbin/sshd             p+i+n+u+g+s+m+sha256
+/usr/bin/sudo              p+i+n+u+g+s+m+sha256

@@ -139,10 +139,12 @@ Private keys for GCP gateways are passed as sensitive variables → embedded in 
 
 ### Security hardening (`ansible/security.yml`)
 
-`roles/security` applies a baseline to **every** host (`hosts: webhardmon`): SSH lockdown, `pam_pwquality`, Fail2ban.
+`roles/security` applies a baseline to **every** host (`hosts: webhardmon`): SSH lockdown, `pam_pwquality`, Fail2ban, plus **auditd** monitoring and **AIDE** file integrity (the `security-playbook-corregido.docx` V3 / RGI311 Nivel 3 layers).
 - **SSH via drop-in** `/etc/ssh/sshd_config.d/20-security.conf` (validated with `sshd -t` before write).
 - **Port 22 → 2222 with auto-detection.** Nodes boot on 22 (cloud-init); `security.yml`'s `pre_tasks` probe 2222 then 22 and set `ansible_port` per host, so it's re-runnable across the spot-rebuild cycle. Other playbooks assume the steady-state 2222 from the inventory. The GCP firewall needs no change (all TCP from the WireGuard mesh is allowed).
-- **Fail2ban `ignoreip`** (`group_vars/all.yml`) covers loopback + WireGuard mesh + each cloud's `/16`, so the control node never bans itself.
+- **Fail2ban `ignoreip`** (`group_vars/all.yml`) covers loopback + WireGuard mesh + each cloud's `/16`, so the control node never bans itself. (The docx's bare `127.0.0.1/8 ::1` is deliberately **not** used — it would auto-ban the Ansible control node.)
+- **Auditd (Nivel 2)** ships rules (`templates/auditd-security.rules.j2`) for SSH/auth, privilege escalation, inter-host network `connect`/`accept`, and critical-file watches; loaded with `augenrules --load` and asserted via `auditctl -l`. Gated by `security_auditd_enabled`.
+- **AIDE (Nivel 3)** seeds a file-integrity DB (init is **idempotent** — runs only when `/var/lib/aide/aide.db` is absent, so spot rebuilds re-seed cleanly), installs `/usr/local/bin/aide-check.sh`, and a daily cron check that alerts to syslog. Gated by `security_aide_enabled`; `security_aide_assert_clean` (default false) controls whether a detected change fails the play.
 
 If you change `var.ssh_port`, also change `security_ssh_port` in `group_vars/all.yml` (inventory side = Terraform, sshd side = Ansible).
 

@@ -1,0 +1,23 @@
+# {{ ansible_managed }}
+# Reglas auditd WebHardMon (Nivel 2) — monitorización de SSH, autenticación,
+# tráfico entre hosts y ficheros críticos. Se cargan vía augenrules.
+
+# --- Intentos de login y autenticación -------------------------------------
+-w /var/log/auth.log -p wa -k auth_log
+-w /etc/ssh/sshd_config -p wa -k ssh_config
+
+# --- Cambios en usuarios y contraseñas -------------------------------------
+-w /etc/passwd -p wa -k user_changes
+-w /etc/shadow -p wa -k shadow_changes
+-w /etc/sudoers -p wa -k sudoers_changes
+
+# --- Escalada de privilegios (comandos ejecutados como root) ---------------
+-a always,exit -F arch=b64 -S execve -F euid=0 -k root_commands
+
+# --- Tráfico de red entre hosts --------------------------------------------
+-a always,exit -F arch=b64 -S connect -k network_connect
+-a always,exit -F arch=b64 -S accept -k network_accept
+
+# --- Acceso a ficheros de configuración de seguridad -----------------------
+-w /etc/fail2ban/ -p wa -k fail2ban_config
+-w /etc/pam.d/ -p wa -k pam_config

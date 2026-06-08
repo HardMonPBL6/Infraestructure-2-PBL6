@@ -1,0 +1,20 @@
+#!/bin/bash
+# {{ ansible_managed }}
+# Comprobación de integridad AIDE WebHardMon (Nivel 3). Lanzada a diario por
+# cron; deja informe en /var/log/aide y avisa por syslog si detecta cambios.
+set -u
+
+REPORT="/var/log/aide/aide-report-$(date +%Y%m%d_%H%M%S).log"
+mkdir -p /var/log/aide
+
+aide --check --config=/etc/aide/aide.conf > "$REPORT" 2>&1
+RC=$?
+
+if [ "$RC" -ne 0 ]; then
+  echo 'ALERTA: AIDE ha detectado cambios en ficheros vigilados!' | tee -a "$REPORT"
+  logger -t AIDE 'ALERTA: cambios de integridad detectados'
+else
+  logger -t AIDE 'AIDE: sin cambios de integridad'
+fi
+
+exit "$RC"

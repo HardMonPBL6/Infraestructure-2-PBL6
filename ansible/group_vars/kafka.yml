@@ -16,8 +16,11 @@ kafka_default_partitions: 3
 kafka_default_replication_factor: 3
 kafka_min_insync_replicas: 2
 
-# Listener anunciado = ansible_host del nodo (WireGuard IP para node-01, IP interna
-# GCP para node-02/03). Es la dirección que los clientes (NiFi, bridge) usan para
-# conectar directamente al broker tras resolver los metadatos. inventory_hostname sería
-# un hostname que no resuelve fuera de la VPC de gcp-a.
-kafka_advertised_listener: "PLAINTEXT://{{ ansible_host }}:{{ kafka_port }}"
+# Listener anunciado = IP interna GCP del nodo (eth0, = ansible_default_ipv4).
+# DEBE ser la IP interna, NO ansible_host: para node-01 (gateway) ansible_host es
+# su IP WireGuard (10.0.0.20), que node-02/03 NO pueden alcanzar (no corren WG) →
+# el controlador no cuenta a node-01 como broker vivo y la creación del topic
+# _schemas con RF=3 falla con INVALID_REPLICATION_FACTOR. La IP interna sí sirve
+# para todos: inter-broker + intra-VPC (SR, bridge) y también NiFi local, porque
+# la malla WireGuard enruta 10.20.0.0/16 hacia la nube local.
+kafka_advertised_listener: "PLAINTEXT://{{ ansible_default_ipv4.address }}:{{ kafka_port }}"

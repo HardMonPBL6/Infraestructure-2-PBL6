@@ -1,6 +1,6 @@
 [submodule "services/stressscore"]
 	path = services/stressscore
-	url = https://github.com/aimartelleria/ConcurrentesPBL6.git
+	url = https://github.com/HardMonPBL6/SistemasConcurrentesPBL6.git
 [submodule "services/web"]
 	path = services/web
 	url = https://github.com/HardMonPBL6/WebHardMon.git

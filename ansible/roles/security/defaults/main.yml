@@ -34,3 +34,24 @@ security_fail2ban_findtime: "10m"
 security_fail2ban_ignoreip:
   - 127.0.0.1/8
   - ::1
+
+# --- Auditd (monitorización — Nivel 2) --------------------------------------
+# Vigila autenticación, escalada de privilegios, tráfico entre hosts y ficheros
+# críticos. Reglas en templates/auditd-security.rules.j2.
+security_auditd_enabled: true
+security_auditd_rules_path: /etc/audit/rules.d/hardmon-security.rules
+security_auditd_max_log_file: 50          # MB por fichero de log
+security_auditd_num_logs: 10              # nº de logs rotados a conservar
+
+# --- AIDE (integridad de ficheros — Nivel 3) --------------------------------
+# Base de datos de hashes de ficheros críticos + comprobación diaria por cron.
+# La BD se inicializa una sola vez (idempotente / a prueba de reconstrucción spot).
+security_aide_enabled: true
+security_aide_rules_path: /etc/aide/aide.conf.d/hardmon-rules.conf
+security_aide_check_script: /usr/local/bin/aide-check.sh
+security_aide_cron_hour: "3"
+security_aide_cron_minute: "30"
+# Si la comprobación inicial detecta cambios, ¿abortar el playbook? En este repo
+# los nodos spot se reconstruyen con frecuencia (BD recién creada → sin cambios),
+# así que por defecto sólo avisa en lugar de fallar.
+security_aide_assert_clean: false
