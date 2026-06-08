@@ -71,11 +71,10 @@ FROM licencia l
 JOIN usuario  u ON u.id = l.usuario_id;
  
 -- ─── datos de prueba ────────────────────────────────────────────────────────
--- Contraseña del admin definida en variable de entorno ADMIN_PASSWORD_HASH
--- Ver .env.example para referencia
+-- No se siembra ningún administrador: el superadmin se crea en el arranque de
+-- la app (SUPERADMIN_USERNAME/SUPERADMIN_PASSWORD, del vault) y desde el panel
+-- se dan de alta los administradores. Así no hay hash de contraseña en el repo.
 INSERT IGNORE INTO empresa (id, nombre) VALUES (1, 'Acme Corp');
-INSERT IGNORE INTO administrador (id, username, password, empresa_id)
-VALUES (1, 'admin', '{bcrypt}${ADMIN_PASSWORD_HASH}', 1);
 INSERT IGNORE INTO usuario (id, nombre, nombre_ordenador, empresa_id)
 VALUES (1, 'Usuario Prueba', 'PC-TEST', 1);
 INSERT IGNORE INTO licencia (id, codigo, activa, fecha_creacion, usuario_id)
