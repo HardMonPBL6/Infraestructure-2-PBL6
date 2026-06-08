@@ -2,20 +2,20 @@
 -- BD de la aplicación: empresas, administradores del panel, usuarios (ordenadores)
 -- y licencias del agente. La app usa Hibernate ddl-auto:update; este fichero crea
 -- la BD a mano y siembra datos de prueba. Se monta en /docker-entrypoint-initdb.d/.
-
+ 
 CREATE DATABASE IF NOT EXISTS telemetriadb
     CHARACTER SET utf8mb4
     COLLATE utf8mb4_unicode_ci;
-
+ 
 USE telemetriadb;
-
+ 
 -- ─── empresa ──────────────────────────────────────────────────────────────
 CREATE TABLE IF NOT EXISTS empresa (
     id     BIGINT       NOT NULL AUTO_INCREMENT,
     nombre VARCHAR(255) NOT NULL,
     PRIMARY KEY (id)
 ) ENGINE=InnoDB;
-
+ 
 -- ─── administrador ──────────────────────────────────────────────────────────
 -- Usuarios con acceso al panel web (rol ADMIN).
 CREATE TABLE IF NOT EXISTS administrador (
@@ -28,7 +28,7 @@ CREATE TABLE IF NOT EXISTS administrador (
     CONSTRAINT fk_administrador_empresa
         FOREIGN KEY (empresa_id) REFERENCES empresa(id)
 ) ENGINE=InnoDB;
-
+ 
 -- ─── usuario ──────────────────────────────────────────────────────────────
 -- Empleado con un ordenador (sin acceso web). nombre_ordenador == `nombre` en
 -- las tablas Cassandra ordenadores y mediciones.
@@ -42,7 +42,7 @@ CREATE TABLE IF NOT EXISTS usuario (
     CONSTRAINT fk_usuario_empresa
         FOREIGN KEY (empresa_id) REFERENCES empresa(id)
 ) ENGINE=InnoDB;
-
+ 
 -- ─── licencia ──────────────────────────────────────────────────────────────
 -- API key del agente Go (1-1 con usuario). El agente envía `codigo` a
 -- POST /api/agente/validar; el panel verifica activa=1 y devuelve empresaId+nombreOrdenador.
@@ -58,7 +58,7 @@ CREATE TABLE IF NOT EXISTS licencia (
     CONSTRAINT fk_licencia_usuario
         FOREIGN KEY (usuario_id) REFERENCES usuario(id)
 ) ENGINE=InnoDB;
-
+ 
 -- ─── vista de lookup para NiFi ────────────────────────────────────────────────
 -- NiFi consulta esta vista con el `codigo`: valida (activa=1) y obtiene empresa_id
 -- + nombre en la misma consulta para enriquecer el Avro (sin tocar la API de Java).
@@ -69,12 +69,13 @@ SELECT l.codigo           AS codigo,
        u.nombre_ordenador AS nombre
 FROM licencia l
 JOIN usuario  u ON u.id = l.usuario_id;
-
+ 
 -- ─── datos de prueba ────────────────────────────────────────────────────────
--- Contraseña del admin: test
+-- Contraseña del admin definida en variable de entorno ADMIN_PASSWORD_HASH
+-- Ver .env.example para referencia
 INSERT IGNORE INTO empresa (id, nombre) VALUES (1, 'Acme Corp');
 INSERT IGNORE INTO administrador (id, username, password, empresa_id)
-VALUES (1, 'admin', '{bcrypt}$2b$12$Huz.a4s2smRK1xhHfTANf.eeRf12QMAuWqrwz8janrY8N8vtLU3KC', 1);
+VALUES (1, 'admin', '{bcrypt}${ADMIN_PASSWORD_HASH}', 1);
 INSERT IGNORE INTO usuario (id, nombre, nombre_ordenador, empresa_id)
 VALUES (1, 'Usuario Prueba', 'PC-TEST', 1);
 INSERT IGNORE INTO licencia (id, codigo, activa, fecha_creacion, usuario_id)
