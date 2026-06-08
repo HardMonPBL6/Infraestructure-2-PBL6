@@ -411,6 +411,23 @@ function applyFilter(){
   });
 }
 
+// Extraído de refresh() para reducir la complejidad cognitiva (SonarCloud)
+function updatePhaseTag(p, ph){
+  const tag=ph.querySelector("[data-tag]");
+  if(p.gate==="lock"){
+    const locked=isLocked(p);
+    ph.classList.toggle("locked",locked);
+    const lb=ph.querySelector("[data-lockbanner]");
+    if(lb) lb.style.display=locked?"flex":"none";
+    tag.className="gate-tag "+(locked?"lock":"open");
+    tag.textContent=locked?"🔒 bloqueado":"✓ desbloqueado";
+  }else if(p.gate==="must"){
+    const done=phaseDone(p.n);
+    tag.className="gate-tag "+(done?"open":"must");
+    tag.textContent=done?"✓ completo":"completar 100%";
+  }
+}
+
 function refresh(){
   // per-item visuals
   document.querySelectorAll(".item").forEach(el=>{
@@ -421,19 +438,7 @@ function refresh(){
   // lock state for phase C
   PLAN.forEach(p=>{
     const ph=phaseEls[p.n];
-    const tag=ph.querySelector("[data-tag]");
-    if(p.gate==="lock"){
-      const locked=isLocked(p);
-      ph.classList.toggle("locked",locked);
-      const lb=ph.querySelector("[data-lockbanner]");
-      if(lb) lb.style.display=locked?"flex":"none";
-      tag.className="gate-tag "+(locked?"lock":"open");
-      tag.textContent=locked?"🔒 bloqueado":"✓ desbloqueado";
-    }else if(p.gate==="must"){
-      const done=phaseDone(p.n);
-      tag.className="gate-tag "+(done?"open":"must");
-      tag.textContent=done?"✓ completo":"completar 100%";
-    }
+    updatePhaseTag(p, ph);
     // phase pct
     const ids=idsByPhase[p.n];
     const d=ids.filter(id=>state[id]).length;
