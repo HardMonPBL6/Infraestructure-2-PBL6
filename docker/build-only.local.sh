@@ -38,8 +38,8 @@ registry_for() {
 }
 
 services=("$@")
-if [ ${#services[@]} -eq 0 ]; then
-  for d in "$SCRIPT_DIR"/*/; do [ -f "${d}Dockerfile" ] && services+=("$(basename "$d")"); done
+if [[ ${#services[@]} -eq 0 ]]; then
+  for d in "$SCRIPT_DIR"/*/; do [[ -f "${d}Dockerfile" ]] && services+=("$(basename "$d")"); done
   for svc in "${!BUILD_CTX[@]}"; do [[ " ${services[*]} " == *" $svc "* ]] || services+=("$svc"); done
 fi
 
@@ -49,8 +49,8 @@ for svc in "${services[@]}"; do
   cloud="${CLOUD[$svc]:-}"
   ctx="${BUILD_CTX[$svc]:-$SCRIPT_DIR/$svc}"
   dockerfile="${BUILD_FILE[$svc]:-$ctx/Dockerfile}"
-  [ -z "$cloud" ] && { echo "!! $svc: sin mapeo de nube, omitido"; continue; }
-  [ -f "$dockerfile" ] || { echo "!! $svc: sin Dockerfile ($dockerfile), omitido"; continue; }
+  [[ -z "$cloud" ]] && { echo "!! $svc: sin mapeo de nube, omitido"; continue; }
+  [[ -f "$dockerfile" ]] || { echo "!! $svc: sin Dockerfile ($dockerfile), omitido"; continue; }
   img="$(registry_for "$cloud")/$svc:$IMAGE_TAG"
   echo "==> BUILD [$cloud] $svc -> $img"
   if docker build -t "$img" -f "$dockerfile" "$ctx"; then echo "    OK $svc"; ok+=("$svc"); else echo "    FALLO $svc"; failed+=("$svc"); fi
@@ -59,4 +59,4 @@ done
 echo "================ RESUMEN BUILD ================"
 echo "OK (${#ok[@]}): ${ok[*]:-none}"
 echo "FALLO (${#failed[@]}): ${failed[*]:-none}"
-[ ${#failed[@]} -eq 0 ] && echo "BUILD_RESULT=SUCCESS" || echo "BUILD_RESULT=PARTIAL"
+[[ ${#failed[@]} -eq 0 ]] && echo "BUILD_RESULT=SUCCESS" || echo "BUILD_RESULT=PARTIAL"

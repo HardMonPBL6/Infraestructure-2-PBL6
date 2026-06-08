@@ -63,7 +63,7 @@ if [[ ${#services[@]} -eq 0 ]]; then
     [[ " ${services[*]} " == *" $svc "* ]] || services+=("$svc")
   done
 fi
-[ ${#services[@]} -eq 0 ] && { echo "No hay Dockerfiles que construir."; exit 0; }
+[[ ${#services[@]} -eq 0 ]] && { echo "No hay Dockerfiles que construir."; exit 0; }
 
 # Docker ya autenticado antes de llamar a este script (docker login con token).
 

@@ -20,7 +20,7 @@ until cqlsh --cqlversion=3.4.6 -e "DESCRIBE keyspaces;" > /dev/null 2>&1; do
         echo "[webhardmon] ERROR: el proceso de Cassandra terminó inesperadamente."
         exit 1
     fi
-    if [ "$elapsed" -ge "$MAX_WAIT" ]; then
+    if [[ "$elapsed" -ge "$MAX_WAIT" ]]; then
         echo "[webhardmon] ERROR: timeout esperando a Cassandra (${MAX_WAIT}s)."
         exit 1
     fi
@@ -31,7 +31,7 @@ done
 echo "[webhardmon] Cassandra lista."
 
 # Aplicar esquema solo en el primer arranque del volumen.
-if [ ! -f "$INIT_MARKER" ]; then
+if [[ ! -f "$INIT_MARKER" ]]; then
     echo "[webhardmon] Aplicando esquema WebHardMon..."
     cqlsh -f "$INIT_CQL"
     touch "$INIT_MARKER"
