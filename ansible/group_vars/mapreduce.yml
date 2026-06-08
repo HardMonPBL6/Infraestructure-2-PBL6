@@ -23,7 +23,7 @@ mr_hdfs_input: "hdfs://{{ mr_hdfs_namenode_ip }}:{{ mr_hdfs_rpc_port }}{{ mr_hdf
 #   - node-01 (gateway gcp-b): WireGuard IP 10.0.0.30 → GCP-B interno 10.30.1.10
 #   - node-02: 10.30.2.11  (rutado por WireGuard vía gateway local 10.10.1.1)
 #   - node-03: 10.30.2.12
-mr_hbase_zk_quorum: "10.0.0.30,10.30.2.11,10.30.2.12"
+mr_hbase_zk_quorum: "10.0.0.30"
 mr_hbase_zk_port: "2181"
 mr_hbase_table: "{{ hbase_table_name | default('webhardmon_hourly') }}"
 

@@ -23,4 +23,17 @@
       GRAFANA_EMPRESA_DASHBOARD_URL: "{{ web_grafana_base }}/d-solo/webhardmon-empresa/webhardmon-empresa"
       GRAFANA_ORDENADORES_DASHBOARD_URL: "{{ web_grafana_base }}/d-solo/webhardmon-ordenadores/webhardmon-ordenadores"
       # El entrypoint es exec (java -jar); el heap se fija por JAVA_TOOL_OPTIONS.
+      ADMIN_PASSWORD: "{{ web_admin_password }}"
+      SUPERADMIN_USERNAME: "{{ web_superadmin_username }}"
+      SUPERADMIN_PASSWORD: "{{ web_superadmin_password }}"
       JAVA_TOOL_OPTIONS: "-Xmx{{ web_heap_mb }}m"
+
+- name: Levantar cloudflared (Cloudflare Tunnel — panel web)
+  community.docker.docker_container:
+    name: cloudflared-web
+    image: "{{ web_cloudflared_image }}"
+    pull: true
+    restart_policy: unless-stopped
+    network_mode: host
+    command: "tunnel --no-autoupdate run --token {{ web_cloudflared_tunnel_token }}"
+    state: "{{ 'started' if web_cloudflared_enabled and web_cloudflared_tunnel_token else 'absent' }}"

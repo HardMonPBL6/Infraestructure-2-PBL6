@@ -11,8 +11,8 @@ web_port: 8080
 web_db_host: "{{ hostvars[groups['mysql'][0]].ansible_host }}"
 web_db_port: 3307
 web_db_name: telemetriadb
-web_db_user: root
-web_db_pass: root
+web_db_user: webhardmon
+web_db_pass: "{{ vault_mysql_app_password }}"
 
 # Cassandra (gcp-a) — contact-points = hosts (sin puerto), puerto aparte.
 web_cassandra_contact_points: "{{ cassandra_nodes | join(',') }}"
@@ -22,3 +22,15 @@ web_cassandra_local_dc: datacenter1
 
 # Grafana (gcp-b) — base para los dashboards embebidos en el panel.
 web_grafana_base: "http://{{ hostvars[groups['grafana'][0]].ansible_host }}:3000"
+
+# Web app admin credentials
+web_admin_password: "{{ vault_web_admin_password }}"
+web_superadmin_username: "{{ vault_web_superadmin_username }}"
+web_superadmin_password: "{{ vault_web_superadmin_password }}"
+
+# cloudflared (Cloudflare Tunnel) — expone el panel en app.<zona>
+# El token viene de `tofu output -raw cloudflared_web_tunnel_token`, añadirlo
+# al vault como vault_cloudflared_web_tunnel_token tras el primer `tofu apply`.
+web_cloudflared_enabled: true
+web_cloudflared_image: "cloudflare/cloudflared:latest"
+web_cloudflared_tunnel_token: "{{ vault_cloudflared_web_tunnel_token | default('') }}"

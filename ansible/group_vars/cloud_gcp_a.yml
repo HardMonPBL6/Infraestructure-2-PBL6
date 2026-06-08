@@ -2,7 +2,7 @@
 # group_vars/cloud_gcp_a.yml — streaming (Kafka + ZooKeeper + Cassandra + Java).
 # Rellena project_id con el real (o genera este fichero desde `tofu output`).
 
-gcp_a_project_id: "webhardmon-a-XXXXX"
+gcp_a_project_id: "webhardmon-prod"
 gcp_a_location: "europe-southwest1"
 
 # Artifact Registry de GCP-A (formato del módulo gcp-registry):

@@ -57,7 +57,7 @@
   wait_for:
     host: "127.0.0.1"
     port: 9042
-    timeout: 180
+    timeout: 360
 
 - name: Verificar estado del nodo (nodetool status)
   command: docker exec cassandra nodetool status

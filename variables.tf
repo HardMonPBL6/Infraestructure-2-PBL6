@@ -341,6 +341,12 @@ variable "cloudflare_harbor_subdomain" {
   default     = "harbor"
 }
 
+variable "cloudflare_web_subdomain" {
+  description = "Subdominio del panel web -> <subdominio>.<zona>. Expuesto vía Cloudflare Tunnel (cloudflared en GCP-B node-02)."
+  type        = string
+  default     = "app"
+}
+
 variable "nifi_ingest_port" {
   description = "Puerto del listener HTTP de ingesta de NiFi dentro del CT (destino del tunel)."
   type        = number
@@ -478,9 +484,9 @@ variable "gcp_spot" {
 }
 
 variable "gcp_spot_termination_action" {
-  description = "Que hacer al interrumpir una VM spot: DELETE (borra VM + disco, mas barato, sin estado persistente) o STOP (conserva el disco para reinicio rapido)."
+  description = "Que hacer al interrumpir una VM spot: DELETE (borra VM + disco, mas barato, sin estado persistente) o STOP (conserva el disco para reinicio rapido). Solo aplica si gcp_spot = true; las VMs on-demand no se interrumpen."
   type        = string
-  default     = "DELETE"
+  default     = "STOP"
   validation {
     condition     = contains(["DELETE", "STOP"], var.gcp_spot_termination_action)
     error_message = "gcp_spot_termination_action debe ser DELETE o STOP."

@@ -3,16 +3,16 @@
 # PROPUESTA (split de 2 imágenes): este grupo son SOLO los nodos RMI de cómputo.
 # El consumo de Kafka + escritura en Cassandra lo hace el "bridge" (java_bridge.yml).
 
-javaapp_image: "{{ container_registry }}/stressscore:{{ image_tag }}"
+javaapp_image: "{{ container_registry }}/java-stressscore:{{ image_tag }}"
 javaapp_heap_mb: 1536
 javaapp_rmi_registry_port: 1099
 javaapp_rmi_object_port: 1100        # puerto FIJO del objeto RMI -> env RMI_OBJECT_PORT
 
-# hostname RMI anunciado = IP interna GCP del nodo (alcanzable via WireGuard).
-javaapp_rmi_server_hostname: "{{ inventory_hostname }}"
+# hostname RMI anunciado = IP interna GCP del nodo (no inventory_hostname que resuelve a 127.0.1.1).
+javaapp_rmi_server_hostname: "{{ hostvars[inventory_hostname]['ansible_default_ipv4']['address'] }}"
 
-# Seeds del gossip = todos los nodos RMI en su puerto de registry.
-javaapp_seeds: "{{ groups['java'] | map('regex_replace', '$', ':' ~ javaapp_rmi_registry_port) | join(' ') }}"
+# Seeds del gossip = IPs internas GCP de todos los nodos RMI (java_peer_ips requiere gather_facts previo).
+javaapp_seeds: "{{ java_peer_ips | map('regex_replace', '$', ':' ~ javaapp_rmi_registry_port) | join(' ') }}"
 
 # Mapeo a env del contenedor `stressscore`:
 #   NODE_ID={{ inventory_hostname }}  HOST={{ inventory_hostname }}

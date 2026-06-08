@@ -24,9 +24,19 @@ trivy:
   ignore_unfixed: false
   skip_update: false
   offline_scan: false
+  security_check: vuln
+  insecure: false
 
 jobservice:
   max_job_workers: 10
+  job_loggers:
+    - STD_OUTPUT
+    - FILE
+  logger_sweeper_duration: 14
+
+notification:
+  webhook_job_max_retry: 3
+  webhook_job_http_client_timeout: 3
 
 log:
   level: info
@@ -45,3 +55,18 @@ proxy:
     - core
     - jobservice
     - trivy
+
+cache:
+  enabled: false
+  expire_hours: 24
+
+metric:
+  enabled: false
+  port: 9090
+  path: /metrics
+
+upload_purging:
+  enabled: true
+  age: 168h
+  interval: 24h
+  dryrun: false

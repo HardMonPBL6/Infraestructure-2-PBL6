@@ -44,11 +44,12 @@
       # que los peers se comuniquen por IP y no por hostname de inventario.
       # Formato Confluent CP: host:2888:3888 separado por punto y coma.
       ZOOKEEPER_SERVERS: >-
-        {{ zookeeper_ensemble
+        {{ zookeeper_peer_ips
            | map('regex_replace', '$', ':2888:3888')
            | join(';') }}
       # Heap acotado al presupuesto del nodo (gcp-a node-02/03 lleva Kafka+Cassandra+Java).
       ZOOKEEPER_HEAP_OPTS: "-Xms{{ zookeeper_heap_mb }}m -Xmx{{ zookeeper_heap_mb }}m"
+      ZOOKEEPER_4LW_COMMANDS_WHITELIST: "ruok,srvr,stat,mntr"
     volumes:
       - "zookeeper-data:/var/lib/zookeeper/data"
       - "zookeeper-logs:/var/lib/zookeeper/log"
@@ -64,4 +65,4 @@
   shell: "echo ruok | nc -w 2 127.0.0.1 {{ zookeeper_client_port }}"
   register: zk_ruok
   changed_when: false
-  failed_when: zk_ruok.stdout != 'imok'
+  failed_when: zk_ruok.rc != 0

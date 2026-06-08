@@ -12,15 +12,15 @@ bridge_heap_mb: 768
 bridge_kafka_bootstrap: "{{ kafka_brokers | map('regex_replace', '$', ':9092') | join(',') }}"
 
 # Schema Registry (gcp-a node-01).
-bridge_schema_registry_url: "http://{{ hostvars[schema_registry_node].ansible_host }}:{{ hostvars[schema_registry_node].schema_registry_port | default(8081) }}"
+bridge_schema_registry_url: "http://{{ hostvars[schema_registry_node]['ansible_default_ipv4']['address'] }}:8081"
 
 # Cassandra (anillo gcp-a).
-bridge_cassandra_contact_points: "{{ cassandra_nodes | map('regex_replace', '$', ':9042') | join(',') }}"
+bridge_cassandra_contact_points: "{{ cassandra_peer_ips | map('regex_replace', '$', ':9042') | join(',') }}"
 bridge_cassandra_local_dc: "datacenter1"      # CONFIRMAR el datacenter real de Cassandra
 bridge_cassandra_keyspace: "webhardmon"
 
 # Seeds RMI (los nodos del grupo `java`) que el bridge usa como cliente.
-bridge_seeds: "{{ groups['java'] | map('regex_replace', '$', ':1099') | join(' ') }}"
+bridge_seeds: "{{ java_peer_ips | map('regex_replace', '$', ':1099') | join(' ') }}"
 
 # HDFS (nube local, alcanzable por WireGuard) — camino batch en Parquet.
 # El clúster HDFS es un proyecto OpenTofu APARTE (HDFS/), no está en este inventario:

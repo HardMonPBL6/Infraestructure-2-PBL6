@@ -8,7 +8,7 @@
 # extra. El registro DNS (A, grey-cloud, -> IP LAN del CT) lo crea OpenTofu.
 #
 # ↓ PONER el FQDN real: harbor.<cloudflare_zone_name> (= `tofu output harbor_hostname`).
-harbor_hostname: "harbor.example.com"
+harbor_hostname: "harbor.hardmon.eus"
 
 # Prefijo COMPLETO de las imágenes locales = host + proyecto Harbor. Debe coincidir
 # con lo que sube build-and-push.sh (registry_for local = $HARBOR_HOST/$PROJECT_NAME),

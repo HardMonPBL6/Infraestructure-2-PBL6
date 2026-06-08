@@ -37,7 +37,7 @@
   wait_for:
     host: "127.0.0.1"
     port: "{{ schema_registry_port }}"
-    timeout: 60
+    timeout: 120
 
 - name: Verificar API de Schema Registry
   uri:

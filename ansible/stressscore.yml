@@ -9,6 +9,11 @@
 # Ejecutar tras security.yml:
 #   ansible-playbook -i ansible/inventory.ini ansible/stressscore.yml
 
+- name: Recopilar facts de nodos gcp-a (necesario para java_peer_ips y cassandra_peer_ips)
+  hosts: cloud_gcp_a
+  gather_facts: true
+  tasks: []
+
 - name: Nodos RMI StressScore (grupo java)
   hosts: java
   become: true

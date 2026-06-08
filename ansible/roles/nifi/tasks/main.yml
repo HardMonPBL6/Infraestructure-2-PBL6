@@ -60,11 +60,11 @@
       - "nifi-logs:/opt/nifi/nifi-current/logs"
     state: started
 
-- name: Esperar a que NiFi esté disponible (puede tardar ~90 s en el primer arranque)
+- name: Esperar a que NiFi esté disponible (puede tardar ~5 min en el primer arranque)
   wait_for:
     host: "127.0.0.1"
     port: "{{ nifi_ui_port }}"
-    timeout: 180
+    timeout: 600
 
 # ── cloudflared (Cloudflare Tunnel) ─────────────────────────────────────────
 # El daemon abre una conexión SALIENTE al edge de Cloudflare.

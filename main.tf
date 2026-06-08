@@ -335,6 +335,24 @@ module "cloudflare_tunnel" {
   nifi_ingest_port = var.nifi_ingest_port
 }
 
+# ---- Cloudflare Tunnel: panel web (GCP-B) ------------------------------------
+# El panel web (Spring Boot) corre en GCP-B node-02 con network_mode host en
+# el puerto web_port (8080). cloudflared corre en el mismo nodo como contenedor
+# host-network y reenvía app.<zona> -> localhost:8080. No se abre ningún puerto
+# externo; la autenticación es responsabilidad de la aplicación.
+module "cloudflare_tunnel_web" {
+  source    = "./modules/cloudflare-tunnel"
+  providers = { cloudflare = cloudflare }
+  count     = var.cloudflare_enabled ? 1 : 0
+
+  account_id       = var.cloudflare_account_id
+  zone_id          = var.cloudflare_zone_id
+  zone_name        = var.cloudflare_zone_name
+  subdomain        = var.cloudflare_web_subdomain
+  tunnel_name      = "webhardmon-web"
+  nifi_ingest_port = 8080
+}
+
 # ---- Harbor TLS: registro DNS para el registro de contenedores local --------
 # Registro A *DNS-only* (grey cloud) harbor.<zona> -> IP LAN del CT Harbor. No
 # se proxea (Cloudflare no alcanza un origen privado) ni se expone a Internet:

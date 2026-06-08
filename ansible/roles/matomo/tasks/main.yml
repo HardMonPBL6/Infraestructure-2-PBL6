@@ -15,6 +15,13 @@
 # Escucha en puerto 3308 (host) para no colisionar con posible MySQL en el mismo nodo.
 # Comunicación Matomo → matomo-mysql: vía localhost:3308 (loopback, mismo host).
 
+# ── Red interna Matomo ────────────────────────────────────────────────────────
+
+- name: Crear red Docker para Matomo
+  community.docker.docker_network:
+    name: matomo-net
+    state: present
+
 # ── MySQL dedicado a Matomo ───────────────────────────────────────────────────
 
 - name: Crear volumen para los datos de matomo-mysql
@@ -28,6 +35,10 @@
     image: "{{ matomo_mysql_image }}"
     pull: true
     restart_policy: unless-stopped
+    networks:
+      - name: matomo-net
+        aliases:
+          - matomo-mysql
     ports:
       - "3308:3306"
     env:
@@ -58,13 +69,14 @@
     image: "{{ matomo_image }}"
     pull: true
     restart_policy: unless-stopped
-    network_mode: host
+    networks:
+      - name: matomo-net
     ports:
       - "8282:80"
     env:
-      # matomo-mysql corre en el mismo host: conectar vía loopback (host networking).
-      MATOMO_DATABASE_HOST:     "127.0.0.1"
-      MATOMO_DATABASE_PORT:     "3308"
+      # matomo-mysql es alcanzable por su alias de red Docker (matomo-net).
+      MATOMO_DATABASE_HOST:     "matomo-mysql"
+      MATOMO_DATABASE_PORT:     "3306"
       MATOMO_DATABASE_ADAPTER:  "mysql"
       MATOMO_DATABASE_DBNAME:   "{{ matomo_mysql_database }}"
       MATOMO_DATABASE_USERNAME: "{{ matomo_mysql_user }}"
@@ -77,7 +89,7 @@
   wait_for:
     host: "127.0.0.1"
     port: 8282
-    timeout: 60
+    timeout: 300
 
 - name: Mostrar URL de acceso a Matomo
   debug:

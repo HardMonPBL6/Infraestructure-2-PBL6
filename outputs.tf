@@ -118,3 +118,14 @@ output "cloudflared_tunnel_token" {
   value       = var.cloudflare_enabled ? module.cloudflare_tunnel[0].tunnel_token : null
   sensitive   = true
 }
+
+output "web_hostname" {
+  description = "URL pública del panel web via Cloudflare Tunnel (app.<zona>)."
+  value       = var.cloudflare_enabled ? "https://${module.cloudflare_tunnel_web[0].ingest_hostname}" : null
+}
+
+output "cloudflared_web_tunnel_token" {
+  description = "Token para `cloudflared` en GCP-B node-02 (panel web). Ponerlo en vault como vault_cloudflared_web_tunnel_token."
+  value       = var.cloudflare_enabled ? module.cloudflare_tunnel_web[0].tunnel_token : null
+  sensitive   = true
+}

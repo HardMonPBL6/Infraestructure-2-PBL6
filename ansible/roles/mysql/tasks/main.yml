@@ -62,6 +62,9 @@
   register: db_check
   changed_when: false
   no_log: true
+  retries: 12
+  delay: 5
+  until: db_check.rc == 0
 
 - name: Confirmar esquema
   debug:

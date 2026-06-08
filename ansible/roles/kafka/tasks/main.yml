@@ -20,6 +20,10 @@
     name: kafka-logs
     state: present
 
+- name: Corregir permisos del volumen kafka-logs (appuser uid=1000)
+  shell: docker run --rm --user root -v kafka-logs:/data alpine sh -c "chown -R 1000:1000 /data"
+  changed_when: false
+
 - name: Levantar broker Kafka
   community.docker.docker_container:
     name: kafka
@@ -57,7 +61,7 @@
   wait_for:
     host: "127.0.0.1"
     port: "{{ kafka_port }}"
-    timeout: 90
+    timeout: 180
 
 - name: Verificar que el broker está registrado en ZooKeeper
   shell: >

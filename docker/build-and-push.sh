@@ -65,9 +65,7 @@ if [ ${#services[@]} -eq 0 ]; then
 fi
 [ ${#services[@]} -eq 0 ] && { echo "No hay Dockerfiles que construir."; exit 0; }
 
-# Autenticación de Docker a los Artifact Registry vía el helper de gcloud.
-# (Harbor: hacer `docker login $HARBOR_HOST` antes de ejecutar este script.)
-gcloud auth configure-docker "${GCP_A_LOCATION}-docker.pkg.dev,${GCP_B_LOCATION}-docker.pkg.dev" --quiet
+# Docker ya autenticado antes de llamar a este script (docker login con token).
 
 failed=()
 for svc in "${services[@]}"; do

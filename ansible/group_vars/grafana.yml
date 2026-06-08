@@ -5,6 +5,14 @@ grafana_image: "{{ container_registry }}/grafana:{{ image_tag }}"
 grafana_port: 3000
 grafana_root_url: "http://{{ inventory_hostname }}:3000"
 
+# Variables cross-service: grafana no está en [cassandra]/[mysql]/[hbase], así que
+# se pinen aquí con los valores canónicos de cada servicio.
+cassandra_keyspace: webhardmon
+mysql_port: 3307
+mysql_database: telemetriadb
+mysql_app_user: webhardmon
+hbase_rest_port: 8085
+
 # Datasources: hot (Cassandra vía WireGuard a gcp-a) + served/BI (MySQL y HBase).
 # Elasticsearch eliminado de la arquitectura final.
 grafana_datasources:
@@ -21,11 +29,11 @@ grafana_datasources:
     type: mysql
     url: "{{ groups['mysql'][0] }}:{{ mysql_port }}"
     database: "{{ mysql_database }}"
-    user: "{{ mysql_app_user | default('admin') }}"
+    user: "{{ mysql_app_user }}"
     secureJsonData:
       password: "{{ vault_mysql_app_password }}"
   - name: hbase-rest
     type: marcusolsson-json-datasource
-    url: "http://localhost:{{ hbase_rest_port | default(8085) }}"
+    url: "http://localhost:{{ hbase_rest_port }}"
 
 # grafana_admin_password: "{{ vault_grafana_admin_password }}"

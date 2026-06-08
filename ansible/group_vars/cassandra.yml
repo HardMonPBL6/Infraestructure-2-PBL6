@@ -7,11 +7,12 @@ cassandra_heap_newsize_mb: 800
 cassandra_cluster_name: "WebHardMonCluster"
 cassandra_keyspace: webhardmon
 
-# Seeds = primeros 2 nodos del grupo (suficiente para bootstrap del anillo).
-cassandra_seeds: "{{ cassandra_nodes[:2] | join(',') }}"
+# Seeds = primeros 2 nodos del grupo (IPs internas GCP — mismo VPC, accesible para gossip).
+cassandra_seeds: "{{ cassandra_peer_ips[:2] | join(',') }}"
 
-# listen/broadcast = IP interna GCP del nodo (accesible via WireGuard entre nubes).
-cassandra_listen_address: "{{ inventory_hostname }}"
+# listen/broadcast = IP interna GCP del nodo (no el hostname que resuelve a 127.0.1.1).
+# ansible_default_ipv4.address = IP de la NIC primaria = IP interna GCP (requires gather_facts).
+cassandra_listen_address: "{{ hostvars[inventory_hostname]['ansible_default_ipv4']['address'] }}"
 
 # Sharding por token (requisito N2): vnodes + RF=3.
 cassandra_num_tokens: 16
