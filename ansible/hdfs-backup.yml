@@ -1,0 +1,28 @@
+---
+# ============================================================================
+# Instala el backup/restauración de metadatos del NameNode HDFS.
+#
+# Target: [hdfs_namenode] (CT NameNode, 10.10.1.21, nube local).
+# Deja dos scripts en el host del CT:
+#   /usr/local/bin/hdfs-namenode-backup.sh   — safemode+saveNamespace+docker cp
+#   /usr/local/bin/hdfs-namenode-restore.sh  — verifica checksums y restaura
+# y, opcional, un cron de backup periódico (group_vars/hdfs.yml:
+# hdfs_backup_cron_enabled).
+#
+# Prerequisito: HDFS desplegado y el contenedor NameNode corriendo (ansible/hdfs.yml).
+#
+#   ansible-playbook -i ansible/inventory.ini ansible/hdfs-backup.yml
+#
+# Lanzar un backup manual tras instalar (demo "Backup sistema"):
+#   ansible -i ansible/inventory.ini hdfs_namenode -b -a /usr/local/bin/hdfs-namenode-backup.sh
+#
+# Restaurar el último backup (demo "Babeskopien konprobazioa"):
+#   ansible -i ansible/inventory.ini hdfs_namenode -b -a /usr/local/bin/hdfs-namenode-restore.sh
+# ============================================================================
+
+- name: Instalar backup/restauración del NameNode HDFS
+  hosts: hdfs_namenode
+  become: true
+  gather_facts: false
+  roles:
+    - hdfs_backup

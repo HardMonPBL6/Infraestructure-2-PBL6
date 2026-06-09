@@ -35,6 +35,7 @@
 - import_playbook: harbor.yml           # registro TLS local (antes que nifi/mapreduce)
 - import_playbook: nifi.yml
 - import_playbook: hdfs.yml            # capa COLD: clúster HDFS local (3 nodos Docker)
+- import_playbook: hdfs-backup.yml    # backup/restore del NameNode (scripts + cron de backup cada 6 h)
 # - import_playbook: hbase.yml          # capa SERVED: requiere HDFS local activo
 # - import_playbook: elasticsearch.yml  # pendiente de rol
 - import_playbook: grafana.yml

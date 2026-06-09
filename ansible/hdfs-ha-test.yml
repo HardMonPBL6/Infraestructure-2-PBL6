@@ -1,0 +1,92 @@
+---
+# ============================================================================
+# Prueba de Alta Disponibilidad de HDFS — demo "Eskuragarritasun sistema".
+#
+# Tumba UN DataNode y comprueba que HDFS sigue sirviendo datos gracias a la
+# replicación (factor 2), y luego lo recupera. NO forma parte de site.yml: es un
+# arnés de demo (para/arranca un contenedor a propósito).
+#
+# Se conduce TODO desde el nodo de control vía Ansible (cada host se alcanza
+# directo por la malla), así que no hace falta SSH NameNode->DataNode como en el
+# procedimiento manual del documento. La víctima por defecto es
+# webhardmon-hdfs-datanode1 (10.10.1.23); cámbiala con -e ha_victim=<host>.
+#
+# IMPORTANTE: tumbar solo UNO. Con replicación 2 y 2 DataNodes, perder los dos
+# deja los datos no disponibles.
+#
+#   ansible-playbook -i ansible/inventory.ini ansible/hdfs-ha-test.yml
+#   ansible-playbook -i ansible/inventory.ini ansible/hdfs-ha-test.yml -e ha_victim=webhardmon-hdfs-datanode0
+# ============================================================================
+
+- name: HA — estado inicial (DataNodes vivos)
+  hosts: hdfs_namenode
+  become: true
+  gather_facts: false
+  tasks:
+    - name: hdfs dfsadmin -report (antes)
+      ansible.builtin.command: "docker exec {{ hdfs_namenode_container }} hdfs dfsadmin -report"
+      register: report_before
+      changed_when: false
+    - name: Mostrar estado inicial
+      ansible.builtin.debug:
+        var: report_before.stdout_lines
+
+- name: HA — tumbar un DataNode (simular fallo)
+  hosts: "{{ ha_victim | default('webhardmon-hdfs-datanode1') }}"
+  become: true
+  gather_facts: false
+  tasks:
+    - name: Parar el contenedor DataNode
+      community.docker.docker_container:
+        name: "{{ hdfs_datanode_container }}"
+        state: stopped
+
+- name: HA — HDFS sigue sirviendo datos
+  hosts: hdfs_namenode
+  become: true
+  gather_facts: false
+  tasks:
+    - name: Dar tiempo a que el NameNode note la caída
+      ansible.builtin.pause:
+        seconds: 15
+    - name: Listar el raíz de HDFS (sigue respondiendo)
+      ansible.builtin.command: "docker exec {{ hdfs_namenode_container }} hdfs dfs -ls /"
+      register: ls_during
+      changed_when: false
+      failed_when: false
+    - name: Mostrar listado durante el fallo
+      ansible.builtin.debug:
+        var: ls_during.stdout_lines
+    - name: hdfs dfsadmin -report (durante el fallo — un DataNode menos)
+      ansible.builtin.command: "docker exec {{ hdfs_namenode_container }} hdfs dfsadmin -report"
+      register: report_during
+      changed_when: false
+    - name: Mostrar estado durante el fallo
+      ansible.builtin.debug:
+        var: report_during.stdout_lines
+
+- name: HA — recuperar el DataNode
+  hosts: "{{ ha_victim | default('webhardmon-hdfs-datanode1') }}"
+  become: true
+  gather_facts: false
+  tasks:
+    - name: Arrancar el contenedor DataNode
+      community.docker.docker_container:
+        name: "{{ hdfs_datanode_container }}"
+        state: started
+
+- name: HA — estado final (nodo recuperado)
+  hosts: hdfs_namenode
+  become: true
+  gather_facts: false
+  tasks:
+    - name: Dar tiempo al re-registro del DataNode
+      ansible.builtin.pause:
+        seconds: 20
+    - name: hdfs dfsadmin -report (después)
+      ansible.builtin.command: "docker exec {{ hdfs_namenode_container }} hdfs dfsadmin -report"
+      register: report_after
+      changed_when: false
+    - name: Mostrar estado final
+      ansible.builtin.debug:
+        var: report_after.stdout_lines

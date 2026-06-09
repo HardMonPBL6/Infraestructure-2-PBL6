@@ -23,3 +23,34 @@ hdfs_registry_prefix: ""
 hdfs_namenode_image: "bde2020/hadoop-namenode"
 hdfs_datanode_image: "bde2020/hadoop-datanode"
 hadoop_version: "2.0.0-hadoop3.2.1-java8"
+
+# ── Backup / restauración del NameNode (roles/hdfs_backup, ansible/hdfs-backup.yml) ──
+# El NameNode guarda los metadatos (FSImage+EditLog) en el volumen Docker
+# {{ project_name }}-hdfs-namenode montado en /hadoop/dfs/name. El backup hace
+# safemode + saveNamespace (volcado consistente) y copia ese dir al host del CT.
+# El factor de replicación 2 cubre la HA de DATOS (DataNodes); el NameNode es el
+# único punto sin réplica, de ahí que su backup sea la pieza crítica.
+#
+# Nombres reales de los contenedores/volumen (los crea roles/hdfs con el prefijo
+# project_name; el documento de instrucciones usaba 'hdfs-namenode' a secas).
+hdfs_namenode_container: "{{ project_name }}-hdfs-namenode"
+hdfs_namenode_volume: "{{ project_name }}-hdfs-namenode"
+hdfs_datanode_container: "{{ project_name }}-hdfs-datanode"
+hdfs_namenode_image_ref: "{{ hdfs_registry_prefix }}{{ hdfs_namenode_image }}:{{ hadoop_version }}"
+
+hdfs_backup_root: "/backup/hdfs/namenode" # en el host del CT NameNode
+hdfs_backup_name_dir: "/hadoop/dfs/name" # dir de metadatos DENTRO del contenedor
+hdfs_backup_retention: 7 # nº de backups a conservar (0 = sin límite)
+hdfs_backup_script: "/usr/local/bin/hdfs-namenode-backup.sh"
+hdfs_restore_script: "/usr/local/bin/hdfs-namenode-restore.sh"
+# Rutas candidatas de la config dentro del contenedor (best-effort: bde2020 la
+# regenera desde env en cada arranque, así que no es crítica respaldarla).
+hdfs_backup_conf_dirs:
+  - "/etc/hadoop"
+  - "/opt/hadoop/etc/hadoop"
+
+# Cron de backup automático del NameNode (activo de serie): cada 6 h en el minuto 0.
+# Pon hdfs_backup_cron_enabled=false para retirarlo (la tarea cron lo borra).
+hdfs_backup_cron_enabled: true
+hdfs_backup_cron_minute: "0"
+hdfs_backup_cron_hour: "*/6"

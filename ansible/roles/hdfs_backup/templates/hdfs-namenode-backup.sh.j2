@@ -1,0 +1,60 @@
+#!/bin/bash
+# hdfs-namenode-backup.sh — generado por Ansible (roles/hdfs_backup). NO editar a mano.
+#
+# Backup consistente de los metadatos del NameNode HDFS (FSImage + EditLog):
+#   safemode enter -> saveNamespace -> docker cp del dir 'name' -> safemode leave.
+# Se ejecuta en el host del CT NameNode ({{ hdfs_namenode_ip }}).
+set -euo pipefail
+
+CONTAINER="{{ hdfs_namenode_container }}"
+NAME_DIR="{{ hdfs_backup_name_dir }}"
+BACKUP_ROOT="{{ hdfs_backup_root }}"
+RETENTION={{ hdfs_backup_retention }}
+CONF_DIRS=( {{ hdfs_backup_conf_dirs | map('quote') | join(' ') }} )
+
+DATE=$(date +%Y%m%d_%H%M%S)
+BACKUP_DIR="${BACKUP_ROOT}/${DATE}"
+mkdir -p "${BACKUP_DIR}"
+
+echo "[$(date -u +%FT%TZ)] Backup del NameNode -> ${BACKUP_DIR}"
+
+cleanup() {
+  # Garantizar que NUNCA dejamos el NameNode en modo seguro, aunque algo falle.
+  docker exec "${CONTAINER}" hdfs dfsadmin -safemode leave >/dev/null 2>&1 || true
+}
+trap cleanup EXIT
+
+# 1) Modo seguro + checkpoint: vuelca FSImage+EditLog a disco de forma consistente.
+docker exec "${CONTAINER}" hdfs dfsadmin -safemode enter
+docker exec "${CONTAINER}" hdfs dfsadmin -saveNamespace
+
+# 2) Copiar el directorio de metadatos del contenedor al host.
+docker cp "${CONTAINER}:${NAME_DIR}" "${BACKUP_DIR}/name"
+
+# 3) Salir de modo seguro (el trap también lo garantiza si falla algo arriba).
+docker exec "${CONTAINER}" hdfs dfsadmin -safemode leave
+
+# 4) Config (best-effort: las imágenes bde2020 regeneran core-site/hdfs-site desde
+#    variables de entorno en cada arranque, así que NO son críticas; probamos las
+#    rutas conocidas y no abortamos si no están).
+for d in "${CONF_DIRS[@]}"; do
+  for f in core-site.xml hdfs-site.xml; do
+    docker cp "${CONTAINER}:${d}/${f}" "${BACKUP_DIR}/${f}" 2>/dev/null || true
+  done
+done
+[ -f "${BACKUP_DIR}/core-site.xml" ] \
+  || echo "  (aviso: config XML no copiada; se regenera desde env, no es crítica)"
+
+# 5) Checksums con rutas relativas (la restauración los verifica con sha256sum -c).
+( cd "${BACKUP_DIR}" && find . -type f ! -name checksums.txt -print0 \
+    | xargs -0 sha256sum > checksums.txt )
+
+echo "Backup completado: ${BACKUP_DIR}"
+ls -lh "${BACKUP_DIR}"
+
+# 6) Retención: conservar solo los últimos ${RETENTION} backups.
+if [ "${RETENTION}" -gt 0 ]; then
+  ls -1dt "${BACKUP_ROOT}"/*/ 2>/dev/null | tail -n +$((RETENTION + 1)) \
+    | xargs -r rm -rf
+  echo "Retención aplicada: se conservan los últimos ${RETENTION} backups."
+fi

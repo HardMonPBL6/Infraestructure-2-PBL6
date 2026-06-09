@@ -1,0 +1,62 @@
+#!/bin/bash
+# hdfs-namenode-restore.sh — generado por Ansible (roles/hdfs_backup). NO editar a mano.
+#
+# Restaura los metadatos del NameNode desde un backup creado por
+# hdfs-namenode-backup.sh, demostrando que el backup es válido:
+#   verifica checksums -> para el contenedor -> repuebla el volumen -> arranca
+#   -> hdfs dfsadmin -report.
+#
+# Uso:  hdfs-namenode-restore.sh [DIR_BACKUP]
+#       (sin argumento coge automáticamente el backup más reciente)
+set -euo pipefail
+
+CONTAINER="{{ hdfs_namenode_container }}"
+VOLUME="{{ hdfs_namenode_volume }}"
+NAME_DIR="{{ hdfs_backup_name_dir }}"
+BACKUP_ROOT="{{ hdfs_backup_root }}"
+IMAGE="{{ hdfs_namenode_image_ref }}"
+
+BACKUP_DIR="${1:-}"
+if [ -z "${BACKUP_DIR}" ]; then
+  BACKUP_DIR=$(ls -1dt "${BACKUP_ROOT}"/*/ 2>/dev/null | head -1)
+fi
+BACKUP_DIR="${BACKUP_DIR%/}"
+if [ -z "${BACKUP_DIR}" ] || [ ! -d "${BACKUP_DIR}" ]; then
+  echo "ERROR: no se encontró ningún backup en ${BACKUP_ROOT}" >&2
+  exit 1
+fi
+if [ ! -d "${BACKUP_DIR}/name" ]; then
+  echo "ERROR: ${BACKUP_DIR} no contiene 'name/' (metadatos del NameNode)" >&2
+  exit 1
+fi
+echo "=== Restaurando NameNode desde ${BACKUP_DIR} ==="
+
+# 1) Verificar integridad ANTES de tocar el contenedor.
+echo "=== Verificando checksums ==="
+( cd "${BACKUP_DIR}" && sha256sum -c checksums.txt ) \
+  || { echo "ERROR: backup corrupto (los checksums no coinciden)" >&2; exit 1; }
+
+# 2) Parar el NameNode.
+docker stop "${CONTAINER}"
+
+# 3) Vaciar el volumen de metadatos y repoblarlo con el backup.
+#    Contenedor efímero con el volumen montado para limpiarlo; luego docker cp del
+#    CONTENIDO de 'name/' (el sufijo /. evita el bug docker-cp que anidaría name/name).
+docker run --rm -v "${VOLUME}:/restore" --entrypoint sh "${IMAGE}" \
+  -c 'rm -rf /restore/* /restore/..?* /restore/.[!.]* 2>/dev/null || true'
+docker cp "${BACKUP_DIR}/name/." "${CONTAINER}:${NAME_DIR}/"
+
+# 4) Restaurar config si se respaldó (no crítica, best-effort).
+for f in core-site.xml hdfs-site.xml; do
+  [ -f "${BACKUP_DIR}/${f}" ] || continue
+  for d in {{ hdfs_backup_conf_dirs | map('quote') | join(' ') }}; do
+    docker cp "${BACKUP_DIR}/${f}" "${CONTAINER}:${d}/${f}" 2>/dev/null || true
+  done
+done
+
+# 5) Arrancar y comprobar que el clúster vuelve operativo.
+docker start "${CONTAINER}"
+echo "Esperando a que el NameNode arranque..."
+sleep 30
+docker exec "${CONTAINER}" hdfs dfsadmin -report
+echo "=== Restauración completada ==="

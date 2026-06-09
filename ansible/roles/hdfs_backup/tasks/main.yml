@@ -1,0 +1,56 @@
+---
+# roles/hdfs_backup/tasks/main.yml
+#
+# Instala el backup/restauración de los metadatos del NameNode HDFS (FSImage +
+# EditLog) en el host del CT NameNode (10.10.1.21). Solo se ejecuta sobre el
+# grupo [hdfs_namenode]. Las variables van en group_vars/hdfs.yml (hdfs_backup_*),
+# que aplica a este host por ser subconjunto de [hdfs].
+#
+#   - Backup:        safemode enter -> saveNamespace -> docker cp del dir 'name'
+#                    al host -> safemode leave -> checksums + retención.
+#   - Restauración:  verifica checksums, para el contenedor, repuebla el volumen
+#                    y arranca; al final muestra 'hdfs dfsadmin -report'.
+#   - Cron opcional (hdfs_backup_cron_enabled) para backup periódico.
+#
+# Prerequisito: el contenedor NameNode ya corriendo (roles/hdfs / ansible/hdfs.yml).
+
+- name: Crear el directorio raíz de backups en el host del CT
+  ansible.builtin.file:
+    path: "{{ hdfs_backup_root }}"
+    state: directory
+    owner: root
+    group: root
+    mode: "0750"
+
+- name: Instalar el script de backup del NameNode
+  ansible.builtin.template:
+    src: hdfs-namenode-backup.sh.j2
+    dest: "{{ hdfs_backup_script }}"
+    owner: root
+    group: root
+    mode: "0755"
+
+- name: Instalar el script de restauración del NameNode
+  ansible.builtin.template:
+    src: hdfs-namenode-restore.sh.j2
+    dest: "{{ hdfs_restore_script }}"
+    owner: root
+    group: root
+    mode: "0755"
+
+- name: Programar (o retirar) el cron de backup periódico del NameNode
+  ansible.builtin.cron:
+    name: "webhardmon-hdfs-namenode-backup"
+    minute: "{{ hdfs_backup_cron_minute }}"
+    hour: "{{ hdfs_backup_cron_hour }}"
+    job: "{{ hdfs_backup_script }} >> /var/log/webhardmon-hdfs-backup.log 2>&1"
+    user: root
+    state: "{{ 'present' if hdfs_backup_cron_enabled else 'absent' }}"
+
+- name: Resumen de la instalación de backup
+  ansible.builtin.debug:
+    msg:
+      - "Script backup:  {{ hdfs_backup_script }}  (destino {{ hdfs_backup_root }})"
+      - "Script restore: {{ hdfs_restore_script }}"
+      - "Retención:      {{ hdfs_backup_retention }} backups"
+      - "Cron backup:    {{ 'activo (hora ' + hdfs_backup_cron_hour + ', min ' + hdfs_backup_cron_minute + ')' if hdfs_backup_cron_enabled else 'desactivado (hdfs_backup_cron_enabled=false)' }}"
