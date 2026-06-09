@@ -19,7 +19,7 @@ Agente Go → NiFi → Kafka ──► Java Bridge ──► Cassandra   (hot pa
 
 HDFS no es un sistema de consulta directa ni un sistema de tiempo real. Su función es **acumular todos los registros de telemetría en formato columnar** (Parquet) para que el job MapReduce pueda procesarlos periódicamente y calcular agregados históricos. Sin HDFS, la capa batch del Lambda stack no existiría: no habría datos históricos en HBase ni posibilidad de calcular estadísticas por ventana horaria.
 
-HDFS cumple además un segundo rol: sirve como **rootdir de HBase** (`hdfs://10.10.1.21:9000/hbase`), lo que significa que los HFiles de HBase (los datos reales de la tabla `webhardmon_hourly`) se almacenan físicamente en HDFS y no en los discos efímeros de las VMs spot de GCP-B. Esto garantiza que los datos sobreviven a una recreación de instancia.
+HBase usa `file:///var/hbase-data` (volumen Docker local en cada nodo GCP-B) como rootdir, no HDFS. El acceso directo de GCP-B a `hdfs://10.10.1.21:9000` no está activo (el Windows gateway no reenvía correctamente el tráfico TCP desde GCP-B hacia la LAN local). Por tanto, HDFS es solo la fuente de datos para MapReduce; los HFiles de HBase viven en los nodos GCP-B.
 
 ---
 
@@ -40,7 +40,7 @@ El componente responsable es `HdfsParquetWriter.java` (en `client/src/main/java/
 | Modo de autenticación | Simple (sin Kerberos); `dfs.permissions.enabled=false` |
 | Thread safety | Lock global; un writer por día, lazy, cerrado en shutdown hook |
 
-La conectividad GCP-A → HDFS depende del túnel WireGuard. El NameNode escucha en `0.0.0.0:9000` para que las conexiones vengan de cualquier interfaz (configurado en la Fase 2 con `dfs_namenode_rpc___bind___host=0.0.0.0`).
+La conectividad GCP-A → HDFS depende del túnel WireGuard. El NameNode escucha en `0.0.0.0:9000` para que las conexiones vengan de cualquier interfaz (`HDFS_CONF_dfs_namenode_rpc___bind___host=0.0.0.0` configurado en `roles/hdfs`).
 
 ---
 
@@ -74,29 +74,37 @@ La tabla de campos del esquema `TelemetryEnriched` incluye: `licencia`, `empresa
 
 ## 4. Cómo se desplegó
 
-HDFS se despliega con un **proyecto OpenTofu separado** en `HDFS/`, independiente del proyecto principal. Esto es necesario por el **problema huevo-gallina**: el provider Docker de OpenTofu no puede conectarse a un LXC que se crea en el mismo `apply`. La solución es un despliegue en **dos fases**:
+HDFS se despliega en **dos pasos** independientes: OpenTofu crea los LXC y Ansible despliega los contenedores Docker.
 
-### Fase 1 — Crear LXC e instalar Docker
+### Paso 1 — Crear LXC (root `tofu apply`)
 
-OpenTofu aprovisiona 3 contenedores LXC Debian en los 3 nodos Proxmox (`pve-local`, `pve-local2`, `pve-local3`) con IPs estáticas en la LAN de gestión (`10.10.1.21`, `10.10.1.22`, `10.10.1.23`). Después ejecuta el script `install-docker.sh` dentro de cada LXC para instalar Docker Engine. El estado de esta fase se guarda en GCS (`gs://webhardmon-tofu-state`).
+Los 3 nodos HDFS están definidos en `var.hdfs_nodes` del proyecto principal y se aprovisionan como parte del **root `tofu apply`**, igual que el resto de CTs de la nube local. OpenTofu crea un LXC Debian por nodo Proxmox con IP estática en la LAN de gestión:
 
-### Fase 2 — Desplegar NameNode y DataNodes
+| CT | Proxmox node | IP LAN | vmid |
+|---|---|---|---|
+| `hdfs-namenode` | `pve-local` | `10.10.1.21` | 121 |
+| `hdfs-datanode0` | `pve-local2` | `10.10.1.22` | 122 |
+| `hdfs-datanode1` | `pve-local3` | `10.10.1.23` | 123 |
 
-Un segundo proyecto OpenTofu en `HDFS/mnt/user-data/outputs/webhardmon-hdfs/infra/02-hdfs/` usa el provider Docker para desplegar los contenedores:
+El hookscript `cloud-init/lxc-bootstrap.sh.tftpl` instala openssh y Python3 dentro del LXC al arrancar.
+
+### Paso 2 — Desplegar NameNode y DataNodes (Ansible)
+
+El playbook `ansible/hdfs.yml` ejecuta `roles/docker` + `roles/hdfs` sobre el grupo `[hdfs]`. Las imágenes se descargan directamente de **Docker Hub** (los LXC tienen salida a Internet vía el gateway `10.10.1.1`):
 
 | Contenedor | Host LXC | IP | Imagen |
 |---|---|---|---|
 | `webhardmon-hdfs-namenode` | 10.10.1.21 | — | `bde2020/hadoop-namenode:2.0.0-hadoop3.2.1-java8` |
 | `webhardmon-hdfs-datanode` (×2) | 10.10.1.22, 10.10.1.23 | — | `bde2020/hadoop-datanode:2.0.0-hadoop3.2.1-java8` |
 
-Las imágenes no se descargan de Docker Hub directamente: se suben previamente al **Harbor local** (`10.10.1.50:5000`) y se sirven desde allí, eliminando dependencia de conectividad a Internet en el momento del despliegue.
+Para servir las imágenes desde Harbor en lugar de Docker Hub, basta con poner `hdfs_registry_prefix: "harbor.hardmon.eus/"` en `group_vars/hdfs.yml` y hacer `docker tag + push` de las imágenes allí.
 
 **Topología resultante:**
 
 ```
-pve-local  (10.10.1.15) → LXC 10.10.1.21 → Docker → NameNode (9000/9870)
-pve-local2 (10.10.1.16) → LXC 10.10.1.22 → Docker → DataNode-0
-pve-local3 (10.10.1.17) → LXC 10.10.1.23 → Docker → DataNode-1
+pve-local  → LXC 10.10.1.21 → Docker → webhardmon-hdfs-namenode  (9000/9870)
+pve-local2 → LXC 10.10.1.22 → Docker → webhardmon-hdfs-datanode  (DataNode-0)
+pve-local3 → LXC 10.10.1.23 → Docker → webhardmon-hdfs-datanode  (DataNode-1)
 ```
 
 **Verificación post-despliegue:**
@@ -105,11 +113,11 @@ pve-local3 (10.10.1.17) → LXC 10.10.1.23 → Docker → DataNode-1
 # NameNode UI — debe listar 2 DataNodes vivos
 # http://10.10.1.21:9870 (pestaña Datanodes)
 
-ssh root@10.10.1.21 \
+ssh -p 2222 ubuntu@10.10.1.21 \
   "docker exec webhardmon-hdfs-namenode hdfs dfsadmin -report"
 
 # Crear directorio de telemetría si no existe
-ssh root@10.10.1.21 \
+ssh -p 2222 ubuntu@10.10.1.21 \
   "docker exec webhardmon-hdfs-namenode hdfs dfs -mkdir -p /data/telemetry"
 ```
 
@@ -119,7 +127,7 @@ ssh root@10.10.1.21 \
 
 - **Lambda Architecture requiere cold storage**: los datos de streaming (Cassandra) son costosos de consultar en rango horario/diario a gran escala. HDFS + Parquet proporciona un almacén barato, columnar y comprimido para procesar por lotes.
 - **Parquet sobre HDFS = entrada nativa de MapReduce**: la integración `AvroParquetInputFormat` permite que el job MapReduce lea los ficheros sin transformación adicional.
-- **Rootdir de HBase en HDFS local**: al ubicar los HFiles en HDFS (nube local, persistente) en lugar de los discos efímeros de GCP-B (Spot VMs con `DELETE` on preemption), los datos de la capa served sobreviven a reinicios de instancia.
+- **Entrada de MapReduce**: HDFS es la única fuente de datos para el job de agregación. Sin HDFS no habría capa batch ni histórico en HBase.
 - **Coste**: la nube local (Proxmox) tiene almacenamiento persistente y sin coste de GCP. Mantener los datos fríos aquí evita facturación de egress y almacenamiento en GCP.
 - **Separación de preocupaciones**: HDFS/MapReduce/HBase forman una pila batch autónoma. Un fallo en el streaming (Kafka/Cassandra) no afecta a los datos históricos.
 

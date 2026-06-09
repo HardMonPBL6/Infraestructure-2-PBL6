@@ -19,11 +19,10 @@ mr_hdfs_input_path: "/data/telemetry"
 mr_hdfs_input: "hdfs://{{ mr_hdfs_namenode_ip }}:{{ mr_hdfs_rpc_port }}{{ mr_hdfs_input_path }}"
 
 # ── Conexión HBase (capa served, gcp-b) ──────────────────────────────────────
-# IPs accesibles desde la nube local via WireGuard:
-#   - node-01 (gateway gcp-b): WireGuard IP 10.0.0.30 → GCP-B interno 10.30.1.10
-#   - node-02: 10.30.2.11  (rutado por WireGuard vía gateway local 10.10.1.1)
-#   - node-03: 10.30.2.12
-mr_hbase_zk_quorum: "10.0.0.30"
+# Usar la IP interna GCP-B (10.30.1.10), no la WireGuard (10.0.0.30).
+# El CT de MapReduce sólo tiene ruta a 10.30.0.0/16 via 10.10.1.1;
+# la red WireGuard 10.0.0.0/24 no es alcanzable desde aquí.
+mr_hbase_zk_quorum: "10.30.1.10"
 mr_hbase_zk_port: "2181"
 mr_hbase_table: "{{ hbase_table_name | default('webhardmon_hourly') }}"
 

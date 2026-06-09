@@ -24,7 +24,7 @@ $ErrorActionPreference = "Stop"
 
 function Get-TfvarsValue([string]$tfvars, [string]$key) {
   $line = Select-String -Path $tfvars -Pattern "^\s*$key\s*=" -ErrorAction SilentlyContinue | Select-Object -First 1
-  if ($line -and $line.Line -match '"([^"]*)"') { return $Matches[1] }
+  if ($line -and $line.Line -match '"([^"]*)"') { return $Matches[1].Trim() }
   return $null
 }
 

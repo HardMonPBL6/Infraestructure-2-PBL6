@@ -18,7 +18,6 @@ MR_ZK_PORT="${MR_ZK_PORT:-2181}"
 echo "[webhardmon-mr] input=${MR_INPUT} table=${MR_HBASE_TABLE} zk=${MR_ZK_QUORUM}:${MR_ZK_PORT}"
 
 exec hadoop jar /opt/webhardmon-mr.jar \
-  com.webhardmon.mr.MetricsAggregationJob \
   "${MR_INPUT}" \
   "${MR_HBASE_TABLE}" \
   "${MR_ZK_QUORUM}" \

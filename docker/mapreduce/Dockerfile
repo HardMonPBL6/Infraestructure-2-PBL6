@@ -26,7 +26,7 @@ FROM bde2020/hadoop-base:2.0.0-hadoop3.2.1-java8
 
 COPY --from=build /webhardmon-mr.jar /opt/webhardmon-mr.jar
 COPY run-job.sh /opt/run-job.sh
-RUN chmod +x /opt/run-job.sh
+RUN sed -i 's/\r//' /opt/run-job.sh && chmod +x /opt/run-job.sh
 
 # El wrapper lee la configuración del job de variables de entorno (MR_*) y lanza
 # `hadoop jar`. Sobreescribimos el ENTRYPOINT de la base: no necesitamos generar

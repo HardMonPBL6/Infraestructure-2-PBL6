@@ -11,9 +11,9 @@ MapReduce es el **motor de la capa batch** del Lambda Architecture. Su único jo
 ```
 HDFS /data/telemetry/**/*.parquet
         │
-        │  (cada hora a :10, cron en 10.10.1.21)
+        │  (cada hora a :10, cron en 10.10.1.24, CT dedicado)
         ▼
-  MetricsAggregationJob (MapReduce modo local, dentro del contenedor NameNode)
+  MetricsAggregationJob (MapReduce modo local, contenedor efímero docker run --rm)
         │
         ▼
   HBase webhardmon_hourly   (capa served, GCP-B)
@@ -35,12 +35,14 @@ La fuente es HDFS, directorio `/data/telemetry`. Los ficheros fueron escritos po
 Si se quiere ejecutar el job sobre una partición concreta (p.ej., solo una hora):
 
 ```bash
-docker exec webhardmon-hdfs-namenode \
-  hadoop jar /opt/webhardmon-mr.jar \
-  com.webhardmon.mr.MetricsAggregationJob \
-  /data/telemetry/2024/01/15/14 \
-  webhardmon_hourly \
-  10.0.0.30,10.30.2.11,10.30.2.12
+# Ejecutar manualmente en el CT dedicado (10.10.1.24)
+MR_INPUT=hdfs://10.10.1.21:9000/data/telemetry/2024/01/15/14 \
+MR_HBASE_TABLE=webhardmon_hourly \
+MR_ZK_QUORUM=10.30.1.10 \
+MR_ZK_PORT=2181 \
+docker run --rm --name webhardmon-mapreduce --network host \
+  -e MR_INPUT -e MR_HBASE_TABLE -e MR_ZK_QUORUM -e MR_ZK_PORT \
+  harbor.hardmon.eus/webhardmon/mapreduce:1.0
 ```
 
 ---
@@ -108,7 +110,7 @@ m:count
 
 Configura el job: `InputFormat`, `Mapper`, `Reducer`, `TableOutputFormat` apuntando a la tabla HBase, número de reducers (8, coincide con las pre-split regions de HBase para paralelismo óptimo), y los parámetros del quorum ZooKeeper de HBase.
 
-**Modo de ejecución**: el job corre en **modo local** (`-Dmapreduce.framework.name=local`) dentro del contenedor `webhardmon-hdfs-namenode`. No se usa YARN porque las imágenes `bde2020/hadoop-*` no incluyen NodeManager/ResourceManager configurados. El modo local ejecuta Mapper y Reducer en el mismo proceso JVM.
+**Modo de ejecución**: el job corre en **modo local** (`-Dmapreduce.framework.name=local`) dentro de un contenedor Docker efímero (`docker run --rm`) en el CT dedicado `10.10.1.24`. No se usa YARN porque las imágenes `bde2020/hadoop-base` no incluyen NodeManager/ResourceManager configurados. El modo local ejecuta Mapper y Reducer en el mismo proceso JVM.
 
 ### Flujo completo del job
 
@@ -138,20 +140,22 @@ HDFS /data/telemetry/**/*.parquet
 El Reducer usa `TableOutputFormat` de HBase, que mediante el cliente HBase (`hbase-client 2.5.10`) conecta directamente al clúster HBase de GCP-B a través del **quorum ZooKeeper** (configurado en `ansible/group_vars/mapreduce.yml`):
 
 ```
-NameNode (10.10.1.21) → WireGuard → ZK quorum GCP-B:
-  - 10.0.0.30   (node-01, gateway WireGuard de GCP-B)
-  - 10.30.2.11  (node-02, rutado por el gateway)
-  - 10.30.2.12  (node-03, rutado por el gateway)
+CT MapReduce (10.10.1.24, nube local)
+    │  ruta 10.30.0.0/16 via 10.10.1.1 (gateway local LAN)
+    ▼
+ZK HBase GCP-B: 10.30.1.10:2181  (node-01, IP interna GCP-B)
+    │  (ZK devuelve la dirección del RegionServer responsable)
+    ▼
+RegionServer correspondiente en GCP-B (10.30.1.10 / 10.30.2.11 / 10.30.2.12)
 ```
 
-El `Put` viaja desde el NameNode a través de la malla WireGuard hasta el RegionServer de GCP-B que gestiona la región correspondiente al row key.
+El CT de MapReduce usa la IP interna GCP-B (`10.30.1.10`), no la WireGuard (`10.0.0.30`), porque el CT solo tiene ruta a `10.30.0.0/16` vía `10.10.1.1`; la red WireGuard `10.0.0.0/24` no es alcanzable desde el CT. El `Put` viaja desde el CT MapReduce hasta el RegionServer de GCP-B a través de esa ruta.
 
 Verificar conectividad antes de lanzar el job:
 
 ```bash
-ssh root@10.10.1.21 \
-  "docker exec webhardmon-hdfs-namenode \
-    bash -c 'echo ruok | nc 10.0.0.30 2181'"
+ssh root@10.10.1.24 \
+  "echo ruok | nc 10.30.1.10 2181"
 # Respuesta esperada: imok
 ```
 
@@ -159,61 +163,60 @@ ssh root@10.10.1.21 \
 
 ## 5. Cómo se desplegó
 
-El rol Ansible `mapreduce` (playbook `ansible/mapreduce.yml`) ejecuta los siguientes pasos sobre el grupo `[mapreduce]` (único miembro: `hdfs-namenode ansible_host=10.10.1.21`):
+La imagen Docker se construye fuera de Ansible con el script `docker/build-and-push.sh` y se sube a **Harbor** (`harbor.hardmon.eus/webhardmon/mapreduce:<tag>`). El proceso es multi-stage: el `Dockerfile` compila el fat JAR con Maven (Java 8) y luego lo copia sobre la imagen base `bde2020/hadoop-base:2.0.0-hadoop3.2.1-java8`. El entrypoint es `run-job.sh`, que lee la configuración de variables de entorno (`MR_*`) y ejecuta `hadoop jar`.
 
-1. **Copia el código fuente** de `docker/mapreduce-job/` al nodo de control (`/tmp/`).
-2. **Compila el fat JAR** ejecutando `docker build` localmente sobre la imagen multi-stage (Maven → extrae JAR). Imagen: `webhardmon-mr-builder:latest`.
-3. **Extrae el JAR** de la imagen con `docker create` + `docker cp`.
-4. **Copia el JAR** al host `10.10.1.21` vía SSH y lo inyecta en el contenedor NameNode en `/opt/webhardmon-mr.jar`.
-5. **Añade la ruta IP** hacia GCP-B (`10.30.0.0/16 via <gateway-local>`) si no existe.
-6. **Instala el script wrapper** `/usr/local/bin/run-webhardmon-aggregation.sh` (generado desde `ansible/roles/mapreduce/templates/run-aggregation.sh.j2`).
-7. **Crea el cron job** de root en `10.10.1.21`: `10 * * * * /usr/local/bin/run-webhardmon-aggregation.sh`.
+El rol Ansible `mapreduce` (playbook `ansible/mapreduce.yml`) ejecuta los siguientes pasos sobre el grupo `[mapreduce]` (único miembro: CT dedicado `webhardmon-mapreduce` en `10.10.1.24`):
 
-El script wrapper encapsula el `docker exec hadoop jar ...`, añade logging con timestamp en `/var/log/webhardmon-mr-<yyyyMMddHH>.log` y rota logs con más de 7 días de antigüedad.
+1. **Descarga la imagen** desde Harbor (`mr_image`). Reintenta hasta 4 veces con espera de 10 s para tolerar cortes transitorios.
+2. **Añade la ruta IP** hacia GCP-B (`10.30.0.0/16 via 10.10.1.1`) si no existe en el host del CT.
+3. **Instala el script wrapper** `/usr/local/bin/run-webhardmon-aggregation.sh` (generado desde `ansible/roles/mapreduce/templates/run-aggregation.sh.j2`). El script lanza el contenedor con `docker run --rm --network host`, escribe el log por ejecución en `/var/log/webhardmon-mr-$(date +%Y%m%d%H).log` y registra eventos de linaje en `/var/log/webhardmon-lineage.jsonl`.
+4. **Crea el cron job** de root en `10.10.1.24`: `10 * * * * /usr/local/bin/run-webhardmon-aggregation.sh >> /var/log/webhardmon-mr-cron.log 2>&1`.
 
 **Dependencias bundled en el fat JAR** (Maven Shade plugin):
 
 | Librería | Versión | Scope | Rol |
 |---|---|---|---|
-| `hadoop-common` | 3.2.1 | provided | Framework MapReduce (ya en el contenedor NameNode) |
-| `hadoop-mapreduce-client-core` | 3.2.1 | provided | API MapReduce (ya en el contenedor) |
-| `hadoop-hdfs` | 3.2.1 | provided | Acceso HDFS (ya en el contenedor) |
+| `hadoop-common` | 3.2.1 | provided | Framework MapReduce (en imagen base bde2020) |
+| `hadoop-mapreduce-client-core` | 3.2.1 | provided | API MapReduce (en imagen base) |
+| `hadoop-hdfs` | 3.2.1 | provided | Acceso HDFS (en imagen base) |
 | `parquet-avro` | 1.12.3 | bundled | Lectura de Parquet escritos por el bridge Java |
 | `avro` | 1.11.3 | bundled | Soporte del esquema Avro embebido en Parquet |
 | `hbase-client` | 2.5.10 | bundled | API cliente HBase (debe coincidir con la versión del clúster) |
 | `hbase-mapreduce` | 2.5.10 | bundled | `TableReducer`, `TableOutputFormat`, `TableMapReduceUtil` |
 
-Las dependencias Hadoop se declaran como `scope=provided` porque ya están en el contenedor NameNode de bde2020. El fat JAR sólo bundlea lo que no está en el classpath del contenedor: Parquet, Avro y HBase.
+Las dependencias Hadoop se declaran como `scope=provided` porque ya están en la imagen base `bde2020/hadoop-base`. El fat JAR solo bundlea lo que no está en esa imagen: Parquet, Avro y HBase.
 
 **Variables de configuración** (`ansible/group_vars/mapreduce.yml`):
 
 | Variable | Valor | Descripción |
 |---|---|---|
-| `mr_hdfs_input_path` | `/data/telemetry` | Directorio raíz de Parquet en HDFS |
-| `mr_hbase_zk_quorum` | `10.0.0.30,10.30.2.11,10.30.2.12` | ZK quorum de HBase (vía WireGuard) |
+| `mr_image` | `harbor.hardmon.eus/webhardmon/mapreduce:1.0` | Imagen Docker del job |
+| `mr_hdfs_input` | `hdfs://10.10.1.21:9000/data/telemetry` | URI HDFS completa de entrada |
+| `mr_hbase_zk_quorum` | `10.30.1.10` | ZK de HBase (IP interna GCP-B node-01) |
+| `mr_hbase_zk_port` | `2181` | Puerto ZooKeeper |
 | `mr_hbase_table` | `webhardmon_hourly` | Tabla HBase de destino |
+| `mr_hbase_route_cidr` | `10.30.0.0/16` | CIDR de GCP-B a rutar por el gateway local |
+| `mr_local_gateway` | `10.10.1.1` | Gateway LAN local que enruta a GCP-B |
 | `mr_cron_minute` | `10` | Minuto de ejecución del cron |
-| `mr_num_reducers` | `8` | Coincide con las regiones HBase pre-split |
 
 **Verificar el despliegue:**
 
 ```bash
-# JAR en el contenedor
-ssh root@10.10.1.21 \
-  "docker exec webhardmon-hdfs-namenode ls -lh /opt/webhardmon-mr.jar"
+# Imagen disponible en el CT dedicado
+ssh root@10.10.1.24 "docker images | grep mapreduce"
 
 # Cron activo
-ssh root@10.10.1.21 "crontab -l | grep webhardmon"
+ssh root@10.10.1.24 "crontab -l | grep webhardmon"
 
 # Ejecutar manualmente para poblar HBase antes del primer cron
-ssh root@10.10.1.21 /usr/local/bin/run-webhardmon-aggregation.sh
+ssh root@10.10.1.24 /usr/local/bin/run-webhardmon-aggregation.sh
 ```
 
 ---
 
 ## 6. Por qué se eligió MapReduce
 
-- **Integración nativa con Hadoop/HDFS**: MapReduce en modo local corre directamente dentro del contenedor NameNode, donde ya están las librerías `hadoop jar`. No requiere YARN ni clúster adicional.
+- **Integración nativa con Hadoop/HDFS**: la imagen base `bde2020/hadoop-base` aporta el CLI `hadoop jar` y las librerías Hadoop. El job corre en modo local en un contenedor efímero sobre el CT dedicado (`10.10.1.24`), sin necesitar YARN ni clúster adicional.
 - **`TableReducer` de HBase**: la API `hbase-mapreduce` integra MapReduce con HBase directamente, permitiendo escribir `Put` al clúster sin código adicional de conexión.
 - **Paralelismo alineado con sharding**: 8 reducers = 8 regiones HBase. Cada reducer escribe su región sin contención.
 - **Desfase de :10 minutos**: dar margen para que el bridge Java de GCP-A haya flusheado los Parquet de la hora anterior antes de que el job los lea.
@@ -225,12 +228,16 @@ ssh root@10.10.1.21 /usr/local/bin/run-webhardmon-aggregation.sh
 ## 7. Operativa y troubleshooting
 
 ```bash
-# Ver log del job más reciente
-ssh root@10.10.1.21 "ls -lt /var/log/webhardmon-mr-*.log | head -3"
-ssh root@10.10.1.21 "cat /var/log/webhardmon-mr-<yyyyMMddHH>.log"
+# Ver log del job más reciente (en el CT dedicado 10.10.1.24)
+ssh root@10.10.1.24 "ls -lt /var/log/webhardmon-mr-*.log | head -3"
+ssh root@10.10.1.24 "cat /var/log/webhardmon-mr-$(date +%Y%m%d%H).log"
 
-# Verificar datos escritos en HBase tras el job
-docker exec hbase-master hbase shell -n <<'EOF'
+# Ver log de linaje (inicio/fin/error de cada ejecución)
+ssh root@10.10.1.24 "tail -10 /var/log/webhardmon-lineage.jsonl"
+
+# Verificar datos escritos en HBase tras el job (en GCP-B node-01)
+ssh -p 2222 ubuntu@10.0.0.30 \
+  "docker exec hbase-master hbase shell -n" <<'EOF'
 count 'webhardmon_hourly'
 scan 'webhardmon_hourly', {LIMIT => 5}
 EOF

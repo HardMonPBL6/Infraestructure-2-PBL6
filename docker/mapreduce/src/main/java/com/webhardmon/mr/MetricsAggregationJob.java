@@ -5,7 +5,6 @@ import org.apache.hadoop.conf.Configuration;
 import org.apache.hadoop.conf.Configured;
 import org.apache.hadoop.fs.Path;
 import org.apache.hadoop.hbase.HBaseConfiguration;
-import org.apache.hadoop.hbase.HConstants;
 import org.apache.hadoop.hbase.client.Connection;
 import org.apache.hadoop.hbase.client.ConnectionFactory;
 import org.apache.hadoop.hbase.mapreduce.TableMapReduceUtil;
@@ -54,16 +53,15 @@ public class MetricsAggregationJob extends Configured implements Tool {
         String zkPort     = args.length > 3 ? args[3] : "2181";
 
         Configuration conf = getConf();
+        conf.set("hbase.zookeeper.quorum", zkQuorum);
+        conf.set("hbase.zookeeper.property.clientPort", zkPort);
 
-        // Configurar conexión HBase
-        conf.set(HConstants.ZOOKEEPER_QUORUM, zkQuorum);
-        conf.set(HConstants.ZOOKEEPER_CLIENT_PORT, zkPort);
-
-        // Verificar conectividad HBase antes de lanzar el job
         try (Connection ignored = ConnectionFactory.createConnection(conf)) {
             System.out.println("[webhardmon-mr] Conexión HBase OK — ZK: " + zkQuorum);
         } catch (Exception e) {
-            System.err.println("[webhardmon-mr] ERROR conectando a HBase: " + e.getMessage());
+            Throwable cause = e.getCause() != null ? e.getCause() : e;
+            System.err.println("[webhardmon-mr] ERROR conectando a HBase: " + e.getClass().getName() + ": " + cause.getMessage());
+            e.printStackTrace(System.err);
             return 2;
         }
 

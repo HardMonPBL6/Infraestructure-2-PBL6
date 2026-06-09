@@ -30,19 +30,19 @@ La distinción con Cassandra es fundamental:
 Los datos llegan exclusivamente del **job MapReduce**, que corre en el HDFS NameNode (`10.10.1.21`, nube local). El Reducer escribe `Put` de HBase directamente a través del cliente HBase usando `TableOutputFormat`. El camino de red es:
 
 ```
-NameNode (10.10.1.21, nube local)
-    │  TCP → ZooKeeper :2181
+CT MapReduce (10.10.1.24, nube local)
+    │  ruta 10.30.0.0/16 via 10.10.1.1 (gateway LAN)
     ▼
-ZK quorum GCP-B: 10.0.0.30 / 10.30.2.11 / 10.30.2.12
+ZK HBase GCP-B: 10.30.1.10:2181  (node-01, IP interna GCP-B)
     │  (ZK devuelve la dirección del RegionServer responsable)
     ▼
-RegionServer correspondiente en GCP-B
-    │  (Put almacenado en MemStore → flush a HFile en HDFS)
+RegionServer correspondiente en GCP-B (10.30.1.10 / 10.30.2.11 / 10.30.2.12)
+    │  (Put almacenado en MemStore → flush a HFile en volumen Docker)
     ▼
-HDFS rootdir: hdfs://10.10.1.21:9000/hbase
+Rootdir local: file:///var/hbase-data  (volumen Docker hbase-data en cada nodo GCP-B)
 ```
 
-HBase escribe sus HFiles en el **mismo HDFS de la nube local**. Los nodos GCP-B acceden a HDFS en `10.10.1.21:9000` a través de la malla WireGuard (GCP-B node-01 gateway → local gateway `10.0.0.10` → NameNode).
+HBase escribe sus HFiles en el **sistema de ficheros local del contenedor** (volumen Docker `hbase-data` montado en `/var/hbase-data`). No usa HDFS como rootdir; los RegionServers de GCP-B escriben localmente sin necesitar acceso de red al NameNode.
 
 ---
 
@@ -83,7 +83,7 @@ Esta estructura permite scans eficientes por rango de horas de una empresa y tie
 
 **TTL**: 90 días (7.776.000 segundos). HBase expira automáticamente las celdas pasado ese tiempo durante los compaction cycles. No requiere tareas de limpieza adicionales.
 
-**Rootdir en HDFS**: `hdfs://10.10.1.21:9000/hbase`. Los HFiles (datos compactados) se almacenan en HDFS local, no en el disco de las VMs GCP-B. Esto es crítico porque GCP-B usa **Spot VMs con `DELETE` on preemption**: si una VM se elimina, el disco efímero desaparece, pero los HFiles en HDFS sobreviven intactos.
+**Rootdir local**: `file:///var/hbase-data`. Los HFiles se almacenan en el volumen Docker `hbase-data` de cada nodo GCP-B. El acceso directo de GCP-B a HDFS (`hdfs://10.10.1.21:9000`) no está activo porque el Windows gateway no enruta correctamente TCP forwarded desde GCP-B hacia la LAN local (SYN-ACK no llega de vuelta). El job MapReduce escribe en HBase exclusivamente vía la API cliente (ZK → Master → RS) sin que HBase necesite HDFS como rootdir.
 
 ---
 
@@ -127,7 +127,7 @@ Esto evita mantener tres imágenes distintas. La imagen se construye y sube al *
 
 El playbook usa `serial: 1` para garantizar que el HMaster esté operativo antes de que los RegionServers intenten registrarse:
 
-1. **Genera `hbase-site.xml`** en cada nodo (plantilla Jinja2): ZK quorum con IPs internas de GCP-B, `hbase.rootdir = hdfs://10.10.1.21:9000/hbase`, REST port 8085.
+1. **Genera `hbase-site.xml`** en cada nodo (plantilla Jinja2): ZK quorum con IPs internas de GCP-B, `hbase.rootdir = file:///var/hbase-data`, REST port 8085.
 2. **Arranca HMaster** en node-01 (primer nodo del grupo `[hbase]`).
 3. **Espera** a que el puerto 16000 (HMaster RPC) esté escuchando.
 4. **Arranca RegionServer** en los 3 nodos.
@@ -166,7 +166,7 @@ EOF
 | `hbase_regionserver_heap_mb` | 3072 | Heap del RegionServer |
 | `hbase_master_heap_mb` | 1024 | Heap del HMaster |
 | `hbase_zk_internal_quorum` | `10.30.1.10,10.30.2.11,10.30.2.12` | ZK con IPs internas GCP-B (para contenedores) |
-| `hbase_hdfs_rootdir` | `hdfs://10.10.1.21:9000/hbase` | Rootdir en HDFS local |
+| `hbase_hdfs_rootdir` | `file:///var/hbase-data` | Rootdir local en volumen Docker |
 | `hbase_table_name` | `webhardmon_hourly` | Tabla de agregados |
 | `hbase_column_family` | `m` | Family única de columnas |
 | `hbase_table_ttl_seconds` | 7776000 | TTL de 90 días |
@@ -181,7 +181,7 @@ EOF
 - **Row key compuesto `empresaId|ramGb|stoGb|hora`**: permite scans eficientes por rangos temporales de una empresa y tier de hardware sin índices secundarios. La segmentación por tier garantiza que los percentiles son comparables dentro de cada grupo, que es exactamente el patrón de consulta de Grafana.
 - **Pre-split desde el inicio**: evitar el hotspot inicial es crítico en sistemas donde los row keys siguen un patrón ordenado (como timestamps). Los 8 splits distribuyen la carga entre los 3 RegionServers desde el primer registro.
 - **REST API nativa**: HBase incluye un servidor REST que expone las tablas como JSON. Grafana puede usar los plugins "JSON API" o "Infinity" apuntando directamente a `http://10.0.0.30:8085/webhardmon_hourly/<rowkey>` sin intermediarios.
-- **Rootdir en HDFS persistente**: los datos sobreviven a la preemption de VMs Spot gracias a que los HFiles residen en HDFS local (LXC Proxmox, no efímero).
+- **Rootdir local en volumen Docker**: los HFiles residen en el volumen `hbase-data` de cada nodo GCP-B. Los datos no sobreviven a una preemption con `DELETE` sin una copia de seguridad previa; se asume que HBase se puede repoblar con MapReduce si se pierde una VM.
 - **ZooKeeper embebido independiente**: no añade dependencia de infraestructura extra y aísla HBase del ZK de Kafka.
 - **TTL automático**: los 90 días de retención se gestionan solos por HBase durante los compaction cycles, sin tareas de limpieza adicionales.
 - **Complementariedad con Cassandra**: Cassandra cubre el hot path (consultas de los últimos N registros con alta frecuencia), HBase cubre el served path (consultas históricas por ventana horaria). Cada uno está optimizado para su patrón de acceso.

@@ -274,7 +274,7 @@ const PLAN = [
     groups:[
       {r:"data", items:[
         {b:"Herramienta de data provenance: activar y documentar la provenance integrada de NiFi.", note:"Victoria rápida — NiFi ya la trae."},
-        {b:"TERCER sistema de almacenamiento masivo justificado: HDFS + Cassandra + HBase (o Elasticsearch como tercero)."},
+        {b:"TERCER sistema de almacenamiento masivo justificado: HDFS (cold · batch) + Cassandra (hot · streaming) + HBase (served · batch layer) — tres tecnologías distintas con roles diferenciados."},
         {b:"Capa de servicio: añadir la capa service (batch + streaming + service). La webapp/API que sirve datos del ciclo de vida es la capa service."},
         {b:"Datos de streaming de origen REAL, no simulado: agentes corriendo en máquinas reales. Avanzar hacia 'todos los datos reales'."},
         {b:"OpenTofu: las tres nubes como un único proyecto IaC + config automatizada desde el mismo nodo."},
@@ -467,13 +467,13 @@ refresh();
 <script>
 const DIAGRAMS = {
 arch:`graph TB
+  Agents["Agentes Go<br/>telemetria HW<br/>(PC usuario externo)"]
+  CF["Cloudflare Tunnel<br/>ingest.zona · HTTPS"]
   subgraph LOCAL["NUBE LOCAL · on-prem"]
-    Agents["Agentes HW reales<br/>telemetria JSON"]
     NiFi["Apache NiFi<br/>ingesta · validacion<br/>Avro · provenance"]
     HDFS["HDFS + Parquet<br/>data lake · batch"]
     MR["MapReduce<br/>agregacion"]
     Harbor["Harbor<br/>registro contenedores"]
-    Agents -->|JSON| NiFi
     HDFS --> MR
   end
   subgraph GCPA["GCP-A · streaming"]
@@ -489,23 +489,28 @@ arch:`graph TB
   subgraph GCPB["GCP-B · analitica + servicio"]
     MySQL["MySQL<br/>app DB · empresa<br/>admin · licencia"]
     HBase["HBase<br/>served · columnar"]
-    ES["Elasticsearch<br/>busqueda · alertas"]
+    Web["Web Panel<br/>aplicacion"]
+    Matomo["Matomo<br/>analitica web"]
+    Zabbix["Zabbix<br/>monitorizacion"]
     Viz["Grafana<br/>capa service"]
     ARb["Artifact Registry"]
     HBase --> Viz
-    ES --> Viz
     MySQL --> Viz
+    Web --> Matomo
+    Zabbix -.->|monitoriza| Web
   end
+  Agents -->|JSON| CF
+  CF --> NiFi
   NiFi -.->|Avro · WireGuard| Kafka
   NiFi -.->|valida licencia · WireGuard| MySQL
   Java -.->|Parquet · WireGuard| HDFS
   MR -.->|agregados · WireGuard| HBase
-  Java -.->|alerts · WireGuard| ES
   Cass -.->|consultas · WireGuard| Viz
   classDef store fill:#0c2420,stroke:#36d6c3,color:#cdeee9;
   classDef cold fill:#0e1d33,stroke:#5b9bd5,color:#cfe0f5;
   classDef serve fill:#241016,stroke:#ff5d7a,color:#ffd4dd;
-  class Cass,HBase store; class HDFS cold; class ES,Viz serve;`,
+  classDef ext fill:#1c1404,stroke:#f5b942,color:#ffe9bf;
+  class Cass,HBase store; class HDFS cold; class Viz serve; class Agents,CF ext;`,
 
 topo:`graph LR
   Mgmt["Nodo de gestion<br/>OpenTofu + Ansible<br/>state unico"]
@@ -534,7 +539,7 @@ topo:`graph LR
   class TS mesh; class Mgmt mg;`,
 
 flow:`flowchart LR
-  A["1 · Agentes reales<br/>(PC de usuario)<br/>emiten JSON"] --> CF["Cloudflare Tunnel<br/>HTTPS + Access token"]
+  A["1 · Agentes Go<br/>(PC de usuario)<br/>emiten JSON"] --> CF["Cloudflare Tunnel<br/>HTTPS · ingest.zona"]
   CF --> B["2 · NiFi<br/>valida licencia<br/>+ Avro + provenance"]
   B -.->|lookup codigo+portatil| MY["MySQL<br/>app DB · licencia"]
   B --> C["3 · Kafka HA<br/>particionado"]
@@ -543,21 +548,19 @@ flow:`flowchart LR
   D --> E2["5b · HDFS Parquet<br/>cold"]
   E2 --> F["6 · MapReduce<br/>agregacion"]
   F --> G2["7 · HBase<br/>served"]
-  D --> H["alertas<br/>Elasticsearch"]
   E1 --> V["Grafana<br/>capa service"]
   G2 --> V
-  H --> V
   classDef hot fill:#0c2420,stroke:#36d6c3,color:#cdeee9;
   classDef cold fill:#0e1d33,stroke:#5b9bd5,color:#cfe0f5;
   classDef sv fill:#241016,stroke:#ff5d7a,color:#ffd4dd;
   classDef edge fill:#1c1404,stroke:#f5b942,color:#ffe9bf;
-  class E1 hot; class E2,F cold; class V,MY sv; class CF edge;`
+  class E1 hot; class E2,F cold; class V,MY sv; class CF,A edge;`
 };
 
 const CAPS = {
-  arch:"<b>Líneas discontinuas = saltos entre nubes</b> cifrados por WireGuard. Tres sistemas de almacenamiento masivo (Cassandra hot · HDFS/Parquet cold · HBase served) cubren el N3 parcial de Datu Ingeniaritza. <b>MySQL es la BD de la aplicación</b> (empresa · admin · licencia), no un almacén analítico: NiFi consulta la licencia antes de enrutar a Kafka. El registro de contenedores aparece en cada nube (Harbor + Artifact Registry ×2). En GCP, estos servicios se reparten como contenedores sobre <b>3 VMs spot por nube</b> (una instancia de cada servicio por VM).",
+  arch:"<b>Líneas discontinuas = saltos entre nubes</b> cifrados por WireGuard. Tres sistemas de almacenamiento masivo (Cassandra hot · HDFS/Parquet cold · HBase served) cubren el N3 parcial de Datu Ingeniaritza. <b>Grafana</b> consume datos de Cassandra (hot path), HBase (batch/served) y MySQL. Los <b>agentes Go</b> corren en PCs de usuario <b>fuera de las nubes</b> y entran por Cloudflare Tunnel (sin VPN en el cliente). <b>Matomo</b> (analitica de clics/sesiones web) y <b>Zabbix</b> (monitorización de servicios) están desplegados en GCP-B. <b>MySQL es la BD de la aplicación</b> (empresa · admin · licencia): NiFi consulta la licencia antes de enrutar a Kafka. El registro de contenedores aparece en cada nube (Harbor + Artifact Registry ×2). Los servicios GCP se co-alojan como contenedores sobre <b>3 VMs spot por nube</b>.",
   topo:"Cada nube con ≥2 subredes (pública/privada) justificadas — requisito RGI320. <b>GCP-A ↔ GCP-B por IP pública = dos nubes</b> según el profesor, pero el tráfico viaja por la malla <b>WireGuard</b> (un gateway por nube, node-01). Cada nube GCP = <b>3 VMs spot e2-standard-4</b> (node-01 público de borde y gateway WireGuard, node-02/03 privadas con rutas estáticas vía el gateway) que co-alojan los servicios → abarata el coste manteniendo clústeres de 3 nodos. Todo se provisiona y configura desde un único nodo de gestión.",
-  flow:"Recorrido extremo a extremo: el origen del streaming son <b>agentes reales</b> (no simulado) → requisito de N3. Como corren en PCs de usuario fuera de las nubes, entran por un <b>túnel Cloudflare</b> (ingest.&lt;zona&gt;, autenticado con un service token de Cloudflare Access) que termina en el CT de NiFi — sin VPN en el cliente ni abrir NAT. <b>NiFi valida la licencia</b> (codigo + portatil) contra MySQL por JDBC antes de enrutar a Kafka. La rama hot (Cassandra) alimenta dashboards en vivo; la rama cold (HDFS→MapReduce) alimenta la capa served de HBase. Grafana es la <b>capa service</b> y lee de Cassandra, HBase y Elasticsearch."
+  flow:"Recorrido extremo a extremo: el origen del streaming son <b>agentes Go reales</b> (no simulado) → requisito de N3. Como corren en PCs de usuario fuera de las nubes, entran por un <b>túnel Cloudflare</b> (ingest.&lt;zona&gt;) que termina en el CT de NiFi — sin VPN en el cliente ni abrir NAT. <b>NiFi valida la licencia</b> (codigo + portatil) contra MySQL por JDBC antes de enrutar a Kafka. La rama hot (Cassandra) alimenta dashboards en vivo; la rama cold (HDFS→MapReduce) alimenta la capa served de HBase. Grafana es la <b>capa service</b> y lee de Cassandra y HBase."
 };
 
 let activeDiagram="arch";

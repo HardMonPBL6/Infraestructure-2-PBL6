@@ -64,35 +64,32 @@
       <version>${avro.version}</version>
     </dependency>
 
-    <!-- ── HBase client + MapReduce API (bundled) ──────────────────────── -->
+    <!-- ── HBase client + MapReduce API (bundled, shadeados) ───────────────
+         Usar los artefactos *-shaded-* en lugar de hbase-client/hbase-mapreduce:
+         llevan protobuf-3.x relocado a org.apache.hbase.shaded.* internamente,
+         por lo que no entran en conflicto con el protobuf-2.5.0 de Hadoop 3.2.1.
+         Con los artefactos no-shadeados y protobuf excluido, el cliente usaba el
+         protobuf 2.5.0 del classpath de Hadoop y el ConnectionFactory fallaba con
+         UndeclaredThrowableException al hacer la primera llamada RPC. -->
     <dependency>
       <groupId>org.apache.hbase</groupId>
-      <artifactId>hbase-client</artifactId>
+      <artifactId>hbase-shaded-client</artifactId>
       <version>${hbase.version}</version>
       <exclusions>
         <exclusion>
           <groupId>org.apache.hadoop</groupId>
           <artifactId>*</artifactId>
-        </exclusion>
-        <!-- Evitar redefinición de clases Protobuf que ya trae Hadoop -->
-        <exclusion>
-          <groupId>com.google.protobuf</groupId>
-          <artifactId>protobuf-java</artifactId>
         </exclusion>
       </exclusions>
     </dependency>
     <dependency>
       <groupId>org.apache.hbase</groupId>
-      <artifactId>hbase-mapreduce</artifactId>
+      <artifactId>hbase-shaded-mapreduce</artifactId>
       <version>${hbase.version}</version>
       <exclusions>
         <exclusion>
           <groupId>org.apache.hadoop</groupId>
           <artifactId>*</artifactId>
-        </exclusion>
-        <exclusion>
-          <groupId>com.google.protobuf</groupId>
-          <artifactId>protobuf-java</artifactId>
         </exclusion>
       </exclusions>
     </dependency>
@@ -111,6 +108,17 @@
             <goals><goal>shade</goal></goals>
             <configuration>
               <createDependencyReducedPom>false</createDependencyReducedPom>
+              <!-- Relocalizar Avro para evitar conflicto con avro-1.7.7.jar que
+                   Hadoop 3.2.1 trae en su classpath del sistema. Sin esto,
+                   Schema.getLogicalType() (añadido en 1.8.0) falla con
+                   NoSuchMethodError porque se carga el Avro del sistema antes
+                   que el 1.11.3 bundleado. -->
+              <relocations>
+                <relocation>
+                  <pattern>org.apache.avro</pattern>
+                  <shadedPattern>com.webhardmon.shaded.avro</shadedPattern>
+                </relocation>
+              </relocations>
               <filters>
                 <!-- Eliminar firmas de JARs firmados que rompen el fat JAR -->
                 <filter>
