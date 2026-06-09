@@ -49,6 +49,18 @@ datasources:
     secureJsonData:
       password: "{{ vault_mysql_app_password | default('changeme-app') }}"
 
+  # ── MySQL Matomo — analítica web ──────────────────────────────────────────
+  # Tráfico: Grafana (gcp-b node-01) → matomo-mysql (mismo nodo, 127.0.0.1:3308).
+  - name: mysql-matomo
+    type: mysql
+    access: proxy
+    url: "{{ hostvars[groups['matomo'][0]].ansible_host }}:3308"
+    database: "{{ matomo_mysql_database | default('matomo') }}"
+    user: "{{ matomo_mysql_user | default('matomo') }}"
+    isDefault: false
+    secureJsonData:
+      password: "{{ vault_matomo_mysql_password | default('changeme-matomo') }}"
+
   # ── HBase REST — capa SERVED (agregados batch, histórico) ─────────────────
   # Acceso vía API REST de HBase (puerto 8085 en gcp-b node-01, mismo host).
   # Tráfico: local (Grafana y HBase REST en el mismo nodo gcp-b node-01).
