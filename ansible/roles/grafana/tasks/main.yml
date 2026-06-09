@@ -57,7 +57,7 @@
       GF_AUTH_ANONYMOUS_ENABLED:        "{{ 'true' if grafana_anonymous_enabled else 'false' }}"
       GF_AUTH_ANONYMOUS_ORG_ROLE:       "Viewer"
       # Plugin JSON datasource para HBase REST (se instala en la imagen o aquí).
-      GF_INSTALL_PLUGINS:               "hadesarchitect-cassandra-datasource,marcusolsson-json-datasource"
+      GF_INSTALL_PLUGINS:               "hadesarchitect-cassandra-datasource,yesoreyeram-infinity-datasource"
       GF_PATHS_PROVISIONING:            "/etc/grafana/provisioning"
     volumes:
       - "grafana-data:/var/lib/grafana"

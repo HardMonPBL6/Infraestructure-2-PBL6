@@ -1,0 +1,44 @@
+server:
+  http_listen_port: {{ promtail_port }}
+  grpc_listen_port: 0
+
+positions:
+  filename: /var/lib/promtail/positions.yaml
+
+clients:
+  - url: {{ loki_push_url }}
+
+scrape_configs:
+
+  # Salida completa del job MapReduce (stdout del contenedor efímero)
+  - job_name: webhardmon-mapreduce-logs
+    static_configs:
+      - targets:
+          - localhost
+        labels:
+          job: mapreduce
+          host: "{{ inventory_hostname }}"
+          cloud: local
+          __path__: {{ mr_log_glob }}
+
+  # Eventos de linaje estructurados (JSON emitidos por run-aggregation.sh)
+  # Permite consultas LogQL: {job="mapreduce-lineage"} | json | event="FAIL"
+  - job_name: webhardmon-lineage
+    static_configs:
+      - targets:
+          - localhost
+        labels:
+          job: mapreduce-lineage
+          host: "{{ inventory_hostname }}"
+          cloud: local
+          __path__: {{ mr_lineage_log }}
+    pipeline_stages:
+      - json:
+          expressions:
+            event: event
+            run_id: run_id
+            input: input
+            output: output
+      - labels:
+          event:
+          run_id:

@@ -48,9 +48,7 @@ datasources:
   # Endpoint de ejemplo para una licencia+hora:
   #   GET http://localhost:8085/webhardmon_hourly/<licencia>|<yyyyMMddHH>
   - name: hbase-rest
-    type: marcusolsson-json-datasource
+    type: yesoreyeram-infinity-datasource
     access: proxy
     url: "http://localhost:{{ hbase_rest_port | default(8085) }}"
     isDefault: false
-    jsonData:
-      httpMethod: GET
