@@ -23,8 +23,9 @@
       # consultado en servidor por /api/historico. Ver group_vars/web.yml.
       HBASE_REST_URL: "{{ web_hbase_rest_url }}"
       HBASE_TABLE: "{{ web_hbase_table }}"
-      GRAFANA_DASHBOARD_URL: "{{ web_grafana_base }}/d-solo/webhardmon-empresa/webhardmon-empresa"
-      GRAFANA_EMPRESA_DASHBOARD_URL: "{{ web_grafana_base }}/d-solo/webhardmon-empresa/webhardmon-empresa"
+      # uid/slug del dashboard de empresa vivo en Grafana (importado como ...empresa2).
+      GRAFANA_DASHBOARD_URL: "{{ web_grafana_base }}/d-solo/webhardmon-empresa2/webhardmon-enpresaren-panela2"
+      GRAFANA_EMPRESA_DASHBOARD_URL: "{{ web_grafana_base }}/d-solo/webhardmon-empresa2/webhardmon-enpresaren-panela2"
       GRAFANA_ORDENADORES_DASHBOARD_URL: "{{ web_grafana_base }}/d-solo/webhardmon-ordenadores/webhardmon-ordenadores"
       # URL pública de Matomo (matomo.<zona>/) para el snippet de tracking. Vacío
       # = el panel omite el snippet (no carga analítica). Ver group_vars/web.yml.
