@@ -1,0 +1,38 @@
+---
+- name: Crear directorios de Loki
+  ansible.builtin.file:
+    path: "{{ item }}"
+    state: directory
+    mode: "0755"
+    owner: root
+    group: root
+  loop:
+    - "{{ loki_config_dir }}"
+    - "{{ loki_data_dir }}"
+
+- name: Desplegar configuración de Loki
+  ansible.builtin.template:
+    src: loki-config.yml.j2
+    dest: "{{ loki_config_dir }}/loki-config.yml"
+    mode: "0644"
+    owner: root
+    group: root
+  notify: Reiniciar Loki
+
+- name: Descargar imagen de Loki
+  community.docker.docker_image:
+    name: "{{ loki_image }}"
+    source: pull
+    force_source: false
+
+- name: Arrancar contenedor Loki
+  community.docker.docker_container:
+    name: "{{ loki_container_name }}"
+    image: "{{ loki_image }}"
+    state: started
+    restart_policy: unless-stopped
+    network_mode: host
+    volumes:
+      - "{{ loki_config_dir }}/loki-config.yml:/etc/loki/loki-config.yml:ro"
+      - "{{ loki_data_dir }}:/loki"
+    command: ["-config.file=/etc/loki/loki-config.yml"]

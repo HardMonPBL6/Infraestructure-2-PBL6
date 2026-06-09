@@ -8,10 +8,38 @@ set -euo pipefail
 
 IMAGE="{{ mr_image }}"
 NAME="{{ mr_container_name }}"
-
 LOGFILE="/var/log/webhardmon-mr-$(date +%Y%m%d%H).log"
+LINEAGE_LOG="/var/log/webhardmon-lineage.jsonl"
+RUN_ID="$(cat /proc/sys/kernel/random/uuid 2>/dev/null \
+          || python3 -c 'import uuid; print(uuid.uuid4())')"
+
+# Escribe una línea JSON en LINEAGE_LOG. Silencioso ante errores de disco.
+log_lineage() {
+  local event="$1" extra="${2:-}"
+  printf '{"ts":"%s","event":"%s","run_id":"%s","job":"metrics-aggregation-mr","input":"%s","output":"%s"%s}\n' \
+    "$(date -u +%Y-%m-%dT%H:%M:%SZ)" "${event}" "${RUN_ID}" \
+    "{{ mr_hdfs_input }}" "{{ mr_hbase_table }}" "${extra}" \
+    >> "${LINEAGE_LOG}" 2>/dev/null || true
+}
+
+# Captura cualquier salida del script (éxito, set -e, exit explícito) y emite
+# el evento de linaje final + el mensaje legible en LOGFILE.
+trap_exit() {
+  local ec=$?
+  if [ "${ec}" -eq 0 ]; then
+    echo "[$(date -u +%FT%TZ)] Job completado correctamente" | tee -a "${LOGFILE}"
+    log_lineage "COMPLETE"
+  else
+    echo "[$(date -u +%FT%TZ)] ERROR: job falló con código ${ec}" | tee -a "${LOGFILE}"
+    log_lineage "FAIL" ",\"exit_code\":${ec}"
+  fi
+  # Rotar logs: conservar solo los últimos 7 días
+  find /var/log -name "webhardmon-mr-*.log" -mtime +7 -delete 2>/dev/null || true
+}
+trap trap_exit EXIT
 
 echo "[$(date -u +%FT%TZ)] Iniciando job MapReduce WebHardMon" | tee "${LOGFILE}"
+log_lineage "START"
 
 # Limpiar un posible contenedor previo con el mismo nombre (run colgado).
 docker rm -f "${NAME}" >/dev/null 2>&1 || true
@@ -23,15 +51,3 @@ docker run --rm --name "${NAME}" --network host \
   -e MR_ZK_PORT="{{ mr_hbase_zk_port }}" \
   "${IMAGE}" \
   2>&1 | tee -a "${LOGFILE}"
-
-EXIT_CODE=${PIPESTATUS[0]}
-
-if [ "${EXIT_CODE}" -eq 0 ]; then
-  echo "[$(date -u +%FT%TZ)] Job completado correctamente" | tee -a "${LOGFILE}"
-else
-  echo "[$(date -u +%FT%TZ)] ERROR: job falló con código ${EXIT_CODE}" | tee -a "${LOGFILE}"
-  exit "${EXIT_CODE}"
-fi
-
-# Rotar logs: conservar solo los últimos 7 días
-find /var/log -name "webhardmon-mr-*.log" -mtime +7 -delete 2>/dev/null || true

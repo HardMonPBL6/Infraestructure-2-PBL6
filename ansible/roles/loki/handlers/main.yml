@@ -1,0 +1,6 @@
+---
+- name: Reiniciar Loki
+  community.docker.docker_container:
+    name: "{{ loki_container_name }}"
+    state: started
+    restart: true

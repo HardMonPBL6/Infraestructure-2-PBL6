@@ -1,0 +1,39 @@
+---
+- name: Crear directorios de Promtail
+  ansible.builtin.file:
+    path: "{{ item }}"
+    state: directory
+    mode: "0755"
+    owner: root
+    group: root
+  loop:
+    - "{{ promtail_config_dir }}"
+    - "{{ promtail_positions_dir }}"
+
+- name: Desplegar configuración de Promtail
+  ansible.builtin.template:
+    src: promtail-config.yml.j2
+    dest: "{{ promtail_config_dir }}/promtail-config.yml"
+    mode: "0644"
+    owner: root
+    group: root
+  notify: Reiniciar Promtail
+
+- name: Descargar imagen de Promtail
+  community.docker.docker_image:
+    name: "{{ promtail_image }}"
+    source: pull
+    force_source: false
+
+- name: Arrancar contenedor Promtail
+  community.docker.docker_container:
+    name: "{{ promtail_container_name }}"
+    image: "{{ promtail_image }}"
+    state: started
+    restart_policy: unless-stopped
+    network_mode: host
+    volumes:
+      - "{{ promtail_config_dir }}/promtail-config.yml:/etc/promtail/promtail-config.yml:ro"
+      - "{{ promtail_positions_dir }}:/var/lib/promtail"
+      - "/var/log:/var/log:ro"
+    command: ["-config.file=/etc/promtail/promtail-config.yml"]

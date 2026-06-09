@@ -1,0 +1,8 @@
+---
+loki_version: "2.9.3"
+loki_image: "grafana/loki:{{ loki_version }}"
+loki_container_name: "loki"
+loki_port: 3100
+loki_grpc_port: 9096
+loki_config_dir: "/opt/loki"
+loki_data_dir: "/opt/loki/data"

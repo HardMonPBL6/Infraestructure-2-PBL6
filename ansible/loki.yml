@@ -1,0 +1,65 @@
+---
+# Loki + Promtail — observabilidad y linaje del pipeline batch WebHardMon.
+#
+# Playbook INDEPENDIENTE: no toca ni reinicia ningún servicio del despliegue
+# principal. Ejecutar después de que site.yml, hbase.yml y mapreduce.yml hayan
+# terminado con éxito:
+#
+#   ansible-playbook -i ansible/inventory.ini ansible/loki.yml \
+#     --ask-vault-pass
+#
+# Qué despliega:
+#   1. Loki       en [grafana]   (GCP-B node-01, junto a Grafana)    puerto 3100
+#   2. Datasource en Grafana     via HTTP API — sin reiniciar Grafana
+#   3. Promtail   en [mapreduce] (CT local 10.10.1.24)               puerto 9080
+#   4. run-aggregation.sh        actualizado con eventos JSON de linaje
+
+# ── 1. Loki ──────────────────────────────────────────────────────────────────
+- name: Desplegar Loki en GCP-B node-01 (junto a Grafana)
+  hosts: grafana
+  become: true
+  roles:
+    - loki
+
+# ── 2. Datasource Loki en Grafana (HTTP API, sin reinicio) ───────────────────
+- name: Registrar datasource Loki en Grafana
+  hosts: grafana
+  become: false
+  tasks:
+    - name: Añadir datasource Loki via Grafana HTTP API (idempotente — 409 = ya existe)
+      ansible.builtin.uri:
+        url: "http://localhost:{{ grafana_port | default(3000) }}/api/datasources"
+        method: POST
+        url_username: admin
+        url_password: "{{ vault_grafana_admin_password }}"
+        force_basic_auth: true
+        body_format: json
+        body:
+          name: "Loki WebHardMon"
+          type: loki
+          url: "http://localhost:{{ loki_port | default(3100) }}"
+          access: proxy
+          isDefault: false
+          jsonData:
+            maxLines: 1000
+        status_code: [200, 409]
+
+# ── 3. Promtail ───────────────────────────────────────────────────────────────
+- name: Desplegar Promtail en el CT MapReduce (nube local)
+  hosts: mapreduce
+  become: true
+  roles:
+    - promtail
+
+# ── 4. Script run-aggregation.sh con eventos de linaje JSON ──────────────────
+- name: Activar logging estructurado de linaje en el CT MapReduce
+  hosts: mapreduce
+  become: true
+  tasks:
+    - name: Desplegar run-aggregation.sh actualizado
+      ansible.builtin.template:
+        src: "{{ playbook_dir }}/roles/mapreduce/templates/run-aggregation.sh.j2"
+        dest: "{{ mr_run_script }}"
+        mode: "0755"
+        owner: root
+        group: root

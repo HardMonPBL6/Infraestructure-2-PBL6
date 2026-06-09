@@ -1,0 +1,18 @@
+---
+promtail_version: "2.9.3"
+promtail_image: "grafana/promtail:{{ promtail_version }}"
+promtail_container_name: "promtail"
+promtail_port: 9080
+promtail_config_dir: "/opt/promtail"
+promtail_positions_dir: "/var/lib/promtail"
+
+# IP interna de GCP-B node-01 (donde corre Loki), sin pasar por WireGuard.
+# Alcanzable desde el CT MapReduce (10.10.1.24) via la ruta 10.30.0.0/16
+# que ya instala roles/mapreduce (mr_hbase_route_cidr).
+loki_push_host: "10.30.1.10"
+loki_push_port: "{{ loki_port | default(3100) }}"
+loki_push_url: "http://{{ loki_push_host }}:{{ loki_push_port }}/loki/api/v1/push"
+
+# Patrones de log del CT MapReduce que Promtail recoge
+mr_log_glob: "/var/log/webhardmon-mr-*.log"
+mr_lineage_log: "/var/log/webhardmon-lineage.jsonl"

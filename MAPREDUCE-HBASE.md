@@ -61,25 +61,30 @@ Una sola imagen cubre los tres roles. El rol Ansible decide cuál arranca en cad
 #### Tabla `webhardmon_hourly`
 
 ```
-Row key   :  {licencia}|{yyyyMMddHH}
-              └── licencia: código de API del dispositivo
-              └── ventana : hora UTC (p.ej. 2024011514)
+Row key   :  {empresa_id}|{ramGb}|{stoGb}|{yyyyMMddHH}
+              └── empresa_id : ID numérico de la empresa (campo Parquet empresa_id)
+              └── ramGb      : RAM total del dispositivo redondeada a GB entero
+              └── stoGb      : Almacenamiento total redondeado a GB entero
+              └── ventana    : hora UTC (p.ej. 2024011514)
 
 Column family: m  (una letra = menos overhead por HFile)
 ```
 
+> El row key segmenta por tier de hardware (ramGb, stoGb) para que los percentiles
+> de uso% sean comparables dentro de cada grupo.
+
 Columnas dentro de `m`:
 
-| Columna | Métrica origen | Descripción |
-|---------|----------------|-------------|
-| `cpu_avg` / `cpu_min` / `cpu_max` | `uso_procesador` | % de uso de CPU |
-| `ram_avg` / `ram_min` / `ram_max` | `uso_ram` | % de uso de RAM |
-| `ram_gb` | `cantidad_ram` | RAM total del dispositivo (GB) |
-| `sto_avg` / `sto_min` / `sto_max` | `uso_almacenamiento` | % de uso de almacenamiento |
-| `sto_gb` | `cantidad_almacenamiento` | Almacenamiento total (GB) |
-| `bat_avg` / `bat_min` / `bat_max` | `bateria` | % de batería |
+| Columna | Métrica origen (campo Parquet) | Descripción |
+|---------|-------------------------------|-------------|
+| `cpu_avg` / `cpu_min` / `cpu_max` | `cpu_percent` | % de uso de CPU |
+| `ram_avg` / `ram_min` / `ram_max` | `ram_percent` | % de uso de RAM |
+| `ram_gb` | `ram` | RAM total del dispositivo (GB, media del grupo) |
+| `sto_avg` / `sto_min` / `sto_max` | `disco_percent` | % de uso de almacenamiento |
+| `sto_gb` | `almacenamiento` | Almacenamiento total (GB, media del grupo) |
+| `bat_avg` / `bat_min` / `bat_max` | `bateria_percent` | % de batería |
 | `tmp_avg` / `tmp_min` / `tmp_max` | `temperatura` | Temperatura en ºC |
-| `str_avg` / `str_min` / `str_max` | `stressScore` | StressScore calculado por RMI (0-100) |
+| `str_avg` / `str_min` / `str_max` | `stress_score` | StressScore calculado por el bridge (0-100) |
 | `count` | — | Nº de muestras en esa hora |
 
 **Pre-split**: 8 regiones distribuidas uniformemente entre los 3 RegionServers (requisito N2 de sharding). Los splits se basan en el primer byte del row key para distribución uniforme.
@@ -124,16 +129,18 @@ HDFS /data/telemetry/**/*.parquet
          │  AvroParquetInputFormat<GenericRecord>
          ▼
   MetricsMapper
-    - Extrae: licencia, timestamp, 8 métricas numéricas
-    - Calcula ventana horaria: yyyyMMddHH (UTC)
-    - Emite: (Text "licencia|yyyyMMddHH",  MetricsWritable)
+    - Extrae: empresa_id, ts, cpu_percent, ram_percent, disco_percent,
+              temperatura, bateria_percent, ram, almacenamiento, stress_score
+    - Calcula ventana horaria: yyyyMMddHH (UTC desde campo ts en epoch ms)
+    - Calcula tier hardware: ramGb = round(ram), stoGb = round(almacenamiento)
+    - Emite: (Text "{empresa_id}|{ramGb}|{stoGb}|{yyyyMMddHH}", MetricsWritable)
          │
          │  shuffle + sort por key
          ▼
   MetricsReducer (TableReducer → HBase)
-    - Acumula: sum, min, max, count para cada métrica
+    - Acumula: sum, min, max, count para cada una de las 8 métricas
     - Calcula: avg = sum / count
-    - Escribe: Put a la fila "licencia|yyyyMMddHH" en webhardmon_hourly
+    - Escribe: Put a la fila "{empresa_id}|{ramGb}|{stoGb}|{yyyyMMddHH}" en webhardmon_hourly
 ```
 
 #### Ejecución
@@ -149,10 +156,14 @@ entorno (`MR_*`); el ENTRYPOINT (`run-job.sh`) las traduce a `hadoop jar`:
 docker run --rm --name webhardmon-mapreduce --network host \
   -e MR_INPUT="hdfs://10.10.1.21:9000/data/telemetry" \
   -e MR_HBASE_TABLE="webhardmon_hourly" \
-  -e MR_ZK_QUORUM="10.0.0.30,10.30.2.11,10.30.2.12" \
+  -e MR_ZK_QUORUM="10.0.0.30" \
   -e MR_ZK_PORT="2181" \
   harbor.<zona>/webhardmon/mapreduce:1.0
 ```
+
+> `MR_ZK_QUORUM` usa solo el gateway gcp-b (`10.0.0.30`, WireGuard IP de node-01)
+> porque es el único nodo alcanzable directamente desde la nube local. HBase
+> descubre el quorum completo desde ese primer punto de contacto.
 
 El **script wrapper** `/usr/local/bin/run-webhardmon-aggregation.sh` (desplegado por Ansible) encapsula este `docker run`, añade logging con timestamp y limpieza de logs viejos (> 7 días).
 
@@ -350,13 +361,13 @@ scan 'webhardmon_hourly', {LIMIT => 5}
 EOF
 ```
 
-Un registro típico tendrá este aspecto:
+Un registro típico tendrá este aspecto (`empresa_id=1`, RAM 8 GB, STO 256 GB):
 
 ```
 ROW                          COLUMN+CELL
-licencia-XYZ|2024011514      column=m:cpu_avg, value=\x40...(double 45.3)
-licencia-XYZ|2024011514      column=m:cpu_max, value=\x40...(double 89.1)
-licencia-XYZ|2024011514      column=m:count,   value=\x00\x00\x00\x00\x00\x00\x00\x24 (36)
+1|8|256|2024011514           column=m:cpu_avg, value=\x40...(double 45.3)
+1|8|256|2024011514           column=m:cpu_max, value=\x40...(double 89.1)
+1|8|256|2024011514           column=m:count,   value=\x00\x00\x00\x00\x00\x00\x00\x24 (36)
 ...
 ```
 
@@ -414,7 +425,7 @@ ssh -p 2222 ubuntu@10.10.1.24 \
   "sudo docker run --rm --network host \
     -e MR_INPUT='hdfs://10.10.1.21:9000/data/telemetry/2024/01/15/14' \
     -e MR_HBASE_TABLE='webhardmon_hourly' \
-    -e MR_ZK_QUORUM='10.0.0.30,10.30.2.11,10.30.2.12' \
+    -e MR_ZK_QUORUM='10.0.0.30' \
     harbor.<zona>/webhardmon/mapreduce:1.0"
 ```
 
