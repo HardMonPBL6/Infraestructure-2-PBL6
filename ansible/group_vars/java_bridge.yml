@@ -22,10 +22,19 @@ bridge_cassandra_keyspace: "webhardmon"
 # Seeds RMI (los nodos del grupo `java`) que el bridge usa como cliente.
 bridge_seeds: "{{ java_peer_ips | map('regex_replace', '$', ':1099') | join(' ') }}"
 
-# HDFS (nube local, alcanzable por WireGuard) — camino batch en Parquet.
-# El clúster HDFS es un proyecto OpenTofu APARTE (HDFS/), no está en este inventario:
-# se apunta directo al NameNode (output `namenode_uri` de su Fase 2). Vacío = desactivado.
-bridge_hdfs_uri: "hdfs://10.10.1.21:9000"
+# HDFS (nube local) — camino batch en Parquet.  ⚠️ DESACTIVADO TEMPORALMENTE.
+# El clúster HDFS es un proyecto OpenTofu APARTE (HDFS/), no está en este inventario.
+#
+# Comprobado en gcp-a: NINGÚN nodo gcp-a (ni el gateway node-01, que tiene la ruta
+# `10.10.0.0/16 dev wg0` e ip_forward=1) alcanza el NameNode/DataNodes
+# (10.10.1.21:9000, .22/.23:9866) → el túnel WireGuard gcp-a↔local NO entrega
+# tráfico a 10.10.0.0/16. Con HDFS activado, el bridge se BLOQUEA al escribir el
+# primer Parquet (el lote nunca confirma offset y deja de consumir).
+#
+# Por eso se deja VACÍO (= HDFS desactivado en el bridge): el hot path a Cassandra
+# (mediciones + ordenadores) funciona perfecto. Reactivar (poner la URI del
+# NameNode) SOLO cuando el túnel WireGuard gcp-a↔local enrute 10.10.0.0/16.
+bridge_hdfs_uri: ""
 
 # Mapeo a env/args del contenedor `stressscore-bridge`:
 #   KAFKA_BOOTSTRAP_SERVERS={{ bridge_kafka_bootstrap }}
