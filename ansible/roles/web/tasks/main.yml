@@ -19,6 +19,10 @@
       CASSANDRA_PORT: "{{ web_cassandra_port | string }}"
       CASSANDRA_KEYSPACE: "{{ web_cassandra_keyspace }}"
       CASSANDRA_LOCAL_DATACENTER: "{{ web_cassandra_local_dc }}"
+      # HBase REST (capa served): acceso local en node-01 (mismo nodo que [hbase]),
+      # consultado en servidor por /api/historico. Ver group_vars/web.yml.
+      HBASE_REST_URL: "{{ web_hbase_rest_url }}"
+      HBASE_TABLE: "{{ web_hbase_table }}"
       GRAFANA_DASHBOARD_URL: "{{ web_grafana_base }}/d-solo/webhardmon-empresa/webhardmon-empresa"
       GRAFANA_EMPRESA_DASHBOARD_URL: "{{ web_grafana_base }}/d-solo/webhardmon-empresa/webhardmon-empresa"
       GRAFANA_ORDENADORES_DASHBOARD_URL: "{{ web_grafana_base }}/d-solo/webhardmon-ordenadores/webhardmon-ordenadores"

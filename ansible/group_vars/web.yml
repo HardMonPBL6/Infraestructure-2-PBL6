@@ -20,6 +20,15 @@ web_cassandra_port: 9042
 web_cassandra_keyspace: webhardmon
 web_cassandra_local_dc: datacenter1
 
+# HBase REST (gcp-b) — capa SERVED (agregados batch MapReduce → webhardmon_hourly).
+# El panel consulta el REST en el SERVIDOR (endpoint /api/historico, no desde el
+# navegador), así que usa el acceso LOCAL del mismo nodo: node-01 ∈ [hbase], [grafana]
+# y [web], y el contenedor web corre con network_mode: host. Igual que el datasource
+# hbase-rest de Grafana (localhost:8085) — NO la IP WireGuard del propio nodo.
+# hbase_rest_port y hbase_table_name se fusionan desde group_vars/hbase.yml.
+web_hbase_rest_url: "http://localhost:{{ hbase_rest_port | default(8085) }}"
+web_hbase_table: "{{ hbase_table_name | default('webhardmon_hourly') }}"
+
 # Grafana (gcp-b) — base para los dashboards embebidos en el panel. Apunta a la
 # URL PÚBLICA del Cloudflare Tunnel (grafana.<zona>), no a la IP interna de GCP:
 # el iframe lo carga el navegador del usuario final, que no alcanza la 10.30.x.
