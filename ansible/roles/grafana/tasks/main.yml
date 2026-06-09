@@ -50,7 +50,12 @@
       GF_SECURITY_ADMIN_USER:           "admin"
       GF_SECURITY_ADMIN_PASSWORD:       "{{ vault_grafana_admin_password | default('admin') }}"
       GF_SECURITY_ALLOW_EMBEDDING:      "true"
-      GF_AUTH_ANONYMOUS_ENABLED:        "false"
+      # Cookies de sesión cross-site: el iframe se sirve desde app.<zona> mientras
+      # Grafana vive en grafana.<zona>; sin SameSite=None el navegador no envía la cookie.
+      GF_SECURITY_COOKIE_SAMESITE:      "none"
+      GF_SECURITY_COOKIE_SECURE:        "true"
+      GF_AUTH_ANONYMOUS_ENABLED:        "{{ 'true' if grafana_anonymous_enabled else 'false' }}"
+      GF_AUTH_ANONYMOUS_ORG_ROLE:       "Viewer"
       # Plugin JSON datasource para HBase REST (se instala en la imagen o aquí).
       GF_INSTALL_PLUGINS:               "hadesarchitect-cassandra-datasource,marcusolsson-json-datasource"
       GF_PATHS_PROVISIONING:            "/etc/grafana/provisioning"
@@ -58,6 +63,16 @@
       - "grafana-data:/var/lib/grafana"
       - "/etc/webhardmon/grafana/provisioning:/etc/grafana/provisioning:ro"
     state: started
+
+- name: Levantar cloudflared (Cloudflare Tunnel — Grafana)
+  community.docker.docker_container:
+    name: cloudflared-grafana
+    image: "{{ grafana_cloudflared_image }}"
+    pull: true
+    restart_policy: unless-stopped
+    network_mode: host
+    command: "tunnel --no-autoupdate run --token {{ grafana_cloudflared_tunnel_token }}"
+    state: "{{ 'started' if grafana_cloudflared_enabled and grafana_cloudflared_tunnel_token else 'absent' }}"
 
 - name: Esperar a que Grafana esté disponible (puerto {{ grafana_port }})
   wait_for:

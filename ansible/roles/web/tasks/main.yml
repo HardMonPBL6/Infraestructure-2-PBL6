@@ -22,6 +22,9 @@
       GRAFANA_DASHBOARD_URL: "{{ web_grafana_base }}/d-solo/webhardmon-empresa/webhardmon-empresa"
       GRAFANA_EMPRESA_DASHBOARD_URL: "{{ web_grafana_base }}/d-solo/webhardmon-empresa/webhardmon-empresa"
       GRAFANA_ORDENADORES_DASHBOARD_URL: "{{ web_grafana_base }}/d-solo/webhardmon-ordenadores/webhardmon-ordenadores"
+      # URL pública de Matomo (matomo.<zona>/) para el snippet de tracking. Vacío
+      # = el panel omite el snippet (no carga analítica). Ver group_vars/web.yml.
+      MATOMO_URL: "{{ web_matomo_url | default('') }}"
       # El entrypoint es exec (java -jar); el heap se fija por JAVA_TOOL_OPTIONS.
       ADMIN_PASSWORD: "{{ web_admin_password }}"
       SUPERADMIN_USERNAME: "{{ web_superadmin_username }}"

@@ -85,6 +85,16 @@
       - "matomo-data:/var/www/html/config"
     state: started
 
+- name: Levantar cloudflared (Cloudflare Tunnel — Matomo)
+  community.docker.docker_container:
+    name: cloudflared-matomo
+    image: "{{ matomo_cloudflared_image }}"
+    pull: true
+    restart_policy: unless-stopped
+    network_mode: host
+    command: "tunnel --no-autoupdate run --token {{ matomo_cloudflared_tunnel_token }}"
+    state: "{{ 'started' if matomo_cloudflared_enabled and matomo_cloudflared_tunnel_token else 'absent' }}"
+
 - name: Esperar a que Matomo esté disponible (puerto 8282)
   wait_for:
     host: "127.0.0.1"

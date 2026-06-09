@@ -6,6 +6,23 @@
 matomo_image: "matomo:5.1"
 matomo_port: 8282
 
+# URL pública servida por el Cloudflare Tunnel (matomo.<zona>, con barra final).
+# El panel web la inyecta en el snippet de tracking (ver web.yml: web_matomo_url),
+# porque matomo.js/matomo.php los carga el navegador del usuario, no localhost.
+matomo_public_url: "https://{{ cloudflare_matomo_subdomain }}.{{ cloudflare_zone_name }}/"
+
+# Matomo, tras un proxy/túnel, solo responde a hosts de confianza. En el wizard de
+# primer arranque accede vía la URL pública para que registre matomo.<zona> como
+# trusted host (o añádelo a mano en config/config.ini.php -> [General] trusted_hosts[]).
+matomo_trusted_host: "{{ cloudflare_matomo_subdomain }}.{{ cloudflare_zone_name }}"
+
+# cloudflared (Cloudflare Tunnel) — expone Matomo en matomo.<zona>.
+# Token = `tofu output -raw cloudflared_matomo_tunnel_token`; añádelo al vault
+# como vault_cloudflared_matomo_tunnel_token tras el `tofu apply`.
+matomo_cloudflared_enabled: true
+matomo_cloudflared_image: "cloudflare/cloudflared:latest"
+matomo_cloudflared_tunnel_token: "{{ vault_cloudflared_matomo_tunnel_token | default('') }}"
+
 # MySQL dedicado a Matomo (no comparte instancia con telemetriadb).
 matomo_mysql_image: "mysql:8.0"
 matomo_mysql_database: matomo
