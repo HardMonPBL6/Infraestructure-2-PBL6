@@ -129,3 +129,25 @@ output "cloudflared_web_tunnel_token" {
   value       = var.cloudflare_enabled ? module.cloudflare_tunnel_web[0].tunnel_token : null
   sensitive   = true
 }
+
+output "grafana_hostname" {
+  description = "URL pública de Grafana via Cloudflare Tunnel (grafana.<zona>). Es el valor de web_grafana_base en ansible/group_vars."
+  value       = var.cloudflare_enabled ? "https://${module.cloudflare_tunnel_grafana[0].ingest_hostname}" : null
+}
+
+output "cloudflared_grafana_tunnel_token" {
+  description = "Token para `cloudflared` en GCP-B node-01 (Grafana). Ponerlo en vault como vault_cloudflared_grafana_tunnel_token."
+  value       = var.cloudflare_enabled ? module.cloudflare_tunnel_grafana[0].tunnel_token : null
+  sensitive   = true
+}
+
+output "matomo_hostname" {
+  description = "URL pública de Matomo via Cloudflare Tunnel (matomo.<zona>). Es el valor de web_matomo_url (MATOMO_URL) en ansible/group_vars/web.yml."
+  value       = var.cloudflare_enabled ? "https://${module.cloudflare_tunnel_matomo[0].ingest_hostname}" : null
+}
+
+output "cloudflared_matomo_tunnel_token" {
+  description = "Token para `cloudflared` en GCP-B node-01 (Matomo). Ponerlo en vault como vault_cloudflared_matomo_tunnel_token."
+  value       = var.cloudflare_enabled ? module.cloudflare_tunnel_matomo[0].tunnel_token : null
+  sensitive   = true
+}

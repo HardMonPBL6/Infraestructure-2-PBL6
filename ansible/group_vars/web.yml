@@ -20,8 +20,18 @@ web_cassandra_port: 9042
 web_cassandra_keyspace: webhardmon
 web_cassandra_local_dc: datacenter1
 
-# Grafana (gcp-b) — base para los dashboards embebidos en el panel.
-web_grafana_base: "http://{{ hostvars[groups['grafana'][0]].ansible_host }}:3000"
+# Grafana (gcp-b) — base para los dashboards embebidos en el panel. Apunta a la
+# URL PÚBLICA del Cloudflare Tunnel (grafana.<zona>), no a la IP interna de GCP:
+# el iframe lo carga el navegador del usuario final, que no alcanza la 10.30.x.
+# grafana_public_url se define en group_vars/grafana.yml (node-01 está en ambos
+# grupos [grafana] y [web], así que la variable se fusiona en este host).
+web_grafana_base: "{{ grafana_public_url }}"
+
+# Matomo (gcp-b) — URL pública del Cloudflare Tunnel (matomo.<zona>, con barra
+# final). El panel la inyecta como MATOMO_URL en el snippet de tracking; el
+# navegador del usuario carga matomo.js/matomo.php desde aquí, no desde localhost.
+# matomo_public_url se define en group_vars/matomo.yml (node-01 ∈ [matomo] y [web]).
+web_matomo_url: "{{ matomo_public_url }}"
 
 # Web app admin credentials
 web_admin_password: "{{ vault_web_admin_password }}"

@@ -3,7 +3,25 @@
 
 grafana_image: "{{ container_registry }}/grafana:{{ image_tag }}"
 grafana_port: 3000
-grafana_root_url: "http://{{ inventory_hostname }}:3000"
+
+# URL pública servida por el Cloudflare Tunnel (grafana.<zona>). Es la base que el
+# panel web usa para embeber dashboards (ver web.yml: web_grafana_base) y la que
+# Grafana anuncia como root_url para que los assets/enlaces resuelvan tras el túnel.
+grafana_public_url: "https://{{ cloudflare_grafana_subdomain }}.{{ cloudflare_zone_name }}"
+grafana_root_url: "{{ grafana_public_url }}"
+
+# Acceso anónimo (rol Viewer). Necesario para que los iframes /d-solo embebidos en
+# el panel web se rendericen en el navegador del usuario final sin pedir login a
+# Grafana. La autorización por empresa la fuerza el panel vía var-empresa. Pon a
+# false si prefieres exigir sesión de Grafana (los dashboards embebidos pedirán login).
+grafana_anonymous_enabled: true
+
+# cloudflared (Cloudflare Tunnel) — expone Grafana en grafana.<zona>.
+# Token = `tofu output -raw cloudflared_grafana_tunnel_token`; añádelo al vault
+# como vault_cloudflared_grafana_tunnel_token tras el `tofu apply`.
+grafana_cloudflared_enabled: true
+grafana_cloudflared_image: "cloudflare/cloudflared:latest"
+grafana_cloudflared_tunnel_token: "{{ vault_cloudflared_grafana_tunnel_token | default('') }}"
 
 # Variables cross-service: grafana no está en [cassandra]/[mysql]/[hbase], así que
 # se pinen aquí con los valores canónicos de cada servicio.

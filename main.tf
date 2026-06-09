@@ -353,6 +353,44 @@ module "cloudflare_tunnel_web" {
   nifi_ingest_port = 8080
 }
 
+# ---- Cloudflare Tunnel: Grafana (GCP-B) --------------------------------------
+# Grafana corre en GCP-B node-01 (network_mode host, puerto 3000). El panel web
+# embebe sus dashboards como iframes en el navegador del usuario final, que NO
+# alcanza la IP interna de GCP. cloudflared corre en el mismo nodo como
+# contenedor host-network y reenvía grafana.<zona> -> localhost:3000, de modo que
+# web_grafana_base apunta a esta URL pública. No se abre ningún puerto externo.
+module "cloudflare_tunnel_grafana" {
+  source    = "./modules/cloudflare-tunnel"
+  providers = { cloudflare = cloudflare }
+  count     = var.cloudflare_enabled ? 1 : 0
+
+  account_id       = var.cloudflare_account_id
+  zone_id          = var.cloudflare_zone_id
+  zone_name        = var.cloudflare_zone_name
+  subdomain        = var.cloudflare_grafana_subdomain
+  tunnel_name      = "webhardmon-grafana"
+  nifi_ingest_port = 3000
+}
+
+# ---- Cloudflare Tunnel: Matomo (GCP-B) ---------------------------------------
+# Matomo corre en GCP-B node-01 (puerto host 8282). El snippet de analítica del
+# panel web (matomo.js + matomo.php) lo descarga y ejecuta el navegador del
+# usuario final, que NO alcanza la IP interna de GCP. cloudflared corre en el
+# mismo nodo (host-network) y reenvía matomo.<zona> -> localhost:8282, de modo que
+# el tracker del panel apunta a esta URL pública en vez de a localhost.
+module "cloudflare_tunnel_matomo" {
+  source    = "./modules/cloudflare-tunnel"
+  providers = { cloudflare = cloudflare }
+  count     = var.cloudflare_enabled ? 1 : 0
+
+  account_id       = var.cloudflare_account_id
+  zone_id          = var.cloudflare_zone_id
+  zone_name        = var.cloudflare_zone_name
+  subdomain        = var.cloudflare_matomo_subdomain
+  tunnel_name      = "webhardmon-matomo"
+  nifi_ingest_port = 8282
+}
+
 # ---- Harbor TLS: registro DNS para el registro de contenedores local --------
 # Registro A *DNS-only* (grey cloud) harbor.<zona> -> IP LAN del CT Harbor. No
 # se proxea (Cloudflare no alcanza un origen privado) ni se expone a Internet:

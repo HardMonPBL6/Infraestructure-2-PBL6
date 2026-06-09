@@ -347,6 +347,18 @@ variable "cloudflare_web_subdomain" {
   default     = "app"
 }
 
+variable "cloudflare_grafana_subdomain" {
+  description = "Subdominio de Grafana -> <subdominio>.<zona>. Expuesto vía Cloudflare Tunnel (cloudflared en GCP-B node-01) para que el panel web pueda embeber los dashboards desde una URL pública alcanzable por el navegador del usuario."
+  type        = string
+  default     = "grafana"
+}
+
+variable "cloudflare_matomo_subdomain" {
+  description = "Subdominio de Matomo -> <subdominio>.<zona>. Expuesto vía Cloudflare Tunnel (cloudflared en GCP-B node-01). El snippet de tracking del panel web (matomo.js/matomo.php) lo carga el navegador del usuario final, así que necesita una URL pública, no localhost."
+  type        = string
+  default     = "matomo"
+}
+
 variable "nifi_ingest_port" {
   description = "Puerto del listener HTTP de ingesta de NiFi dentro del CT (destino del tunel)."
   type        = number
