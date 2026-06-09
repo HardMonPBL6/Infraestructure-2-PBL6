@@ -35,6 +35,10 @@
     src: datasources.yml.j2
     dest: /etc/webhardmon/grafana/provisioning/datasources/webhardmon.yml
     mode: "0644"
+  # Grafana solo lee el provisioning al arrancar: si solo cambia el fichero montado,
+  # docker_container NO recrea el contenedor y Grafana sigue sirviendo el datasource
+  # viejo de su BD. Forzamos un reinicio para que re-aplique el provisioning.
+  notify: Reiniciar Grafana
 
 - name: Levantar Grafana (red gestión gcp-b node-01, puerto 3000)
   community.docker.docker_container:

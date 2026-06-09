@@ -13,12 +13,20 @@ datasources:
   # ── Cassandra — capa HOT (streaming, datos recientes) ─────────────────────
   # Plugin de comunidad: hadesarchitect-cassandra-datasource.
   # Tráfico: Grafana (gcp-b node-01, subred pública) → Cassandra (gcp-a node-01,
-  # 10.20.1.10:9042) vía WireGuard. Los nodos seed (10.20.1.10) son alcanzables
-  # desde la red de gestión; node-02/03 vía WireGuard routing.
+  # 10.20.1.10:9042) vía WireGuard. Usamos la IP interna real del nodo
+  # (ansible_default_ipv4.address, p.ej. 10.20.1.10), NO su ansible_host: para el
+  # nodo gateway ansible_host es la IP del túnel WireGuard (10.0.0.20), y el driver
+  # de Cassandra descubre el resto del anillo por sus IPs internas (10.20.x), que
+  # el gateway enruta. Así contact point y topología descubierta son coherentes.
   - name: cassandra-hot
+    # UID fijo: los dashboards del panel web (services/web/grafana-local/.../json)
+    # referencian el datasource por "uid": "cassandra". Sin este uid explícito
+    # Grafana asigna uno aleatorio y los paneles fallan con "datasource cassandra
+    # was not found".
+    uid: cassandra
     type: hadesarchitect-cassandra-datasource
     access: proxy
-    url: "{{ hostvars[groups['cassandra'][0]].ansible_host }}:9042"
+    url: "{{ hostvars[groups['cassandra'][0]].ansible_default_ipv4.address }}:9042"
     isDefault: false
     jsonData:
       keyspace: "{{ cassandra_keyspace }}"

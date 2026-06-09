@@ -5,6 +5,7 @@ RUN grafana-cli plugins install hadesarchitect-cassandra-datasource
 
 # Los datasources (IPs reales del cluster) los provisiona Ansible en tiempo de
 # despliegue, montando /etc/grafana/provisioning/datasources/ desde el host.
-# Referencia: ansible/group_vars/grafana.yml
+# Fuente canónica: ansible/roles/grafana/templates/datasources.yml.j2
+# (provisioning/datasources/datasources.yml de este repo es solo referencia).
 
 EXPOSE 3000

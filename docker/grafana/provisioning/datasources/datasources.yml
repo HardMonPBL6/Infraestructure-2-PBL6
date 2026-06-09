@@ -1,40 +1,49 @@
-# Plantilla de referencia para el rol Ansible de Grafana.
-# Ansible renderiza este fichero con los valores de group_vars/grafana.yml
-# y lo monta en /etc/grafana/provisioning/datasources/ del contenedor.
+# Plantilla de REFERENCIA (no se usa en runtime).
 #
-# Las IPs {{ ... }} las sustituye el playbook; no usar este fichero directamente.
+# La fuente canónica es ansible/roles/grafana/templates/datasources.yml.j2, que el
+# rol `grafana` renderiza con facts/vars reales del cluster y monta en
+# /etc/grafana/provisioning/datasources/ del contenedor (este Dockerfile NO copia
+# este fichero). Se mantiene aquí solo como documentación; si cambias el datasource
+# hazlo en la plantilla de Ansible. Elasticsearch quedó fuera de la arquitectura final.
+#
+# UID fijo `cassandra`: los dashboards del panel web
+# (services/web/grafana-local/provisioning/dashboards/json/*.json) referencian el
+# datasource por "uid": "cassandra". Sin él Grafana asigna uno aleatorio y los
+# paneles fallan con "datasource cassandra was not found".
 
 apiVersion: 1
 
 datasources:
   - name: cassandra-hot
+    uid: cassandra
     type: hadesarchitect-cassandra-datasource
-    uid: cassandra-wh
-    url: "{{ groups['cassandra'][0] }}:9042"
+    access: proxy
+    # IP interna real del nodo (p.ej. 10.20.1.10), enrutada por el gateway WireGuard;
+    # NO la IP del túnel (10.0.0.20). Ansible la resuelve vía ansible_default_ipv4.
+    url: "{{ hostvars[groups['cassandra'][0]].ansible_default_ipv4.address }}:9042"
+    isDefault: false
     jsonData:
       keyspace: "{{ cassandra_keyspace }}"
       user: cassandra
       consistency: LOCAL_ONE
+      timeout: 30
     secureJsonData:
       password: "{{ vault_cassandra_password }}"
-    isDefault: false
 
   - name: mysql-telemetria
     type: mysql
-    uid: mysql-wh
-    url: "{{ groups['mysql'][0] }}:{{ mysql_port }}"
+    access: proxy
+    url: "{{ hostvars[groups['mysql'][0]].ansible_host }}:{{ mysql_port }}"
     database: "{{ mysql_database }}"
-    user: "{{ mysql_app_user | default('admin') }}"
+    user: "{{ mysql_app_user }}"
+    isDefault: false
     secureJsonData:
       password: "{{ vault_mysql_app_password }}"
-    isDefault: false
 
-  - name: elasticsearch
-    type: elasticsearch
-    uid: es-wh
-    url: "http://{{ groups['elasticsearch'][0] }}:9200"
-    jsonData:
-      esVersion: "8.0.0"
-      index: "webhardmon-*"
-      timeField: "@timestamp"
+  - name: hbase-rest
+    type: marcusolsson-json-datasource
+    access: proxy
+    url: "http://localhost:{{ hbase_rest_port }}"
     isDefault: false
+    jsonData:
+      httpMethod: GET
